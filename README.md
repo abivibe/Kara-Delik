@@ -9,6 +9,8 @@
 [![Vibe Coding](https://img.shields.io/badge/%E2%9C%A8%20Crafted%20with-VIBE%20CODING-8A2BE2?style=for-the-badge)](https://github.com/abivibe/Kara-Delik)
 [![Security](https://img.shields.io/badge/Defender%20Scan-100%25%20CLEAN-success?style=for-the-badge&logo=shield&logoColor=white)](#-g%C3%BCvenlik-ve-vir%C3%BCs-taramas%C4%B1--security--virus-scan)
 
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/vibeabi)
+
 ---
 
 **[🇹🇷 Türkçe](#-kara-delik-nedir) • [🇬🇧 English](#-what-is-kara-delik-black-hole) • [⬇️ İndir / Download](../../releases/latest)**
