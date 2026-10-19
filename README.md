@@ -4,7 +4,7 @@
 ### Evrensel, Ultra Hızlı ve Minimalist Medya İndirici
 *Universal, Ultra-Fast & Minimalist Media Downloader*
 
-[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.0-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.1-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(64--bit)-0078D6?style=for-the-badge&logo=windows11&logoColor=white)](../../releases/latest)
 [![Vibe Coding](https://img.shields.io/badge/%E2%9C%A8%20Crafted%20with-VIBE%20CODING-8A2BE2?style=for-the-badge)](https://github.com/abivibe/Kara-Delik)
 [![Security](https://img.shields.io/badge/Defender%20Scan-100%25%20CLEAN-success?style=for-the-badge&logo=shield&logoColor=white)](#-g%C3%BCvenlik-ve-vir%C3%BCs-taramas%C4%B1--security--virus-scan)
@@ -52,7 +52,7 @@
 Uygulamayı kurmak sadece **30 saniyenizi** alır:
 
 1. Bu sayfanın sağ tarafındaki **[Releases (Sürümler)](../../releases/latest)** bölümüne tıklayın.
-2. **"Kara Delik v1.0.0 (Installer Package)"** başlığı altındaki **`KaraDelik_Setup.exe`** dosyasını indirin.
+2. En güncel sürüm başlığı altındaki **`KaraDelik_Setup.exe`** dosyasını indirin.
 3. İndirdiğiniz `KaraDelik_Setup.exe` kurulum sihirbazını çalıştırın ve **İleri -> Kur** adımlarını takip edin.
 4. Masaüstünüzde oluşan **Kara Delik** kısayoluna tıklayın ve keyfini çıkarın! *(Gerekli tüm ses/video birleştirme motorları kurulum paketinin içinde hazır gelir, ekstra hiçbir şey kurmanıza gerek yoktur).*
 
@@ -81,7 +81,7 @@ Tired of dealing with ad-ridden, pop-up infested, slow, and sketchy websites jus
 Getting started takes less than **30 seconds**:
 
 1. Head over to the **[Releases](../../releases/latest)** section on the right side of this repository.
-2. Under **"Kara Delik v1.0.0 (Installer Package)"**, download **`KaraDelik_Setup.exe`**.
+2. Under the latest release, download **`KaraDelik_Setup.exe`**.
 3. Run `KaraDelik_Setup.exe` and follow the quick setup wizard.
 4. Launch **Kara Delik** from your Desktop shortcut and start downloading! *(All required media processing engines are bundled inside the installer—no external dependencies needed).*
 
@@ -96,9 +96,9 @@ Getting started takes less than **30 seconds**:
 | Güvenlik Kontrolü / Check | Sonuç / Status | Detay / Details |
 | :--- | :--- | :--- |
 | **Dosya Adı / File Name** | `KaraDelik_Setup.exe` | Windows 64-bit Kurulum Paketi (Installer) |
-| **Dosya Boyutu / File Size** | `28.83 MB` (`30,225,576 bytes`) | Inno Setup v6.7.1 (LZMA2 Paketleme) |
+| **Dosya Boyutu / File Size** | `28.45 MB` (`29,834,420 bytes`) | Inno Setup v6.7.1 (LZMA2 Paketleme) |
 | **Microsoft Defender Antivirus** | ✅ **TEMİZ / CLEAN (0 Tehdit)** | Özel Tam Dosya Taraması (`MpCmdRun -ScanType 3`) |
-| **SHA-256 Doğrulama / Hash** | `D01233898507AEA18D7F62FB8FF1438E51E99244E455BE81F8C775089275E70A` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **SHA-256 Doğrulama / Hash** | `80A238A5DD7E75DA8353E0D0C9F7471BEFCD9C35BE428BEA12C2903B95CC4A33` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
 
 ---
 
