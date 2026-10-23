@@ -98,7 +98,8 @@ Getting started takes less than **30 seconds**:
 | **Dosya Adı / File Name** | `KaraDelik_Setup.exe` | Windows 64-bit Kurulum Paketi (Installer) |
 | **Dosya Boyutu / File Size** | `28.46 MB` (`29,837,239 bytes`) | Inno Setup v6.7.1 (LZMA2 Paketleme) |
 | **Microsoft Defender Antivirus** | ✅ **TEMİZ / CLEAN (0 Tehdit)** | Özel Tam Dosya Taraması (`MpCmdRun -ScanType 3`) |
-| **SHA-256 Doğrulama / Hash** | `61D1211775A80351EAD74A7C59A2D99C48D31FAF608BB0CB3334DBFCA23FB009` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **SHA-256 Doğrulama / Hash** | `99e45528f876a076c5055e49f2bbf574d377cee50dcfba1151cf5c6a384fbd36` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **Virüs Total Scan Result & Tarama Sonuçları** | `[Scan Result](https://www.virustotal.com/gui/file/99e45528f876a076c5055e49f2bbf574d377cee50dcfba1151cf5c6a384fbd36/detection)` | `False Positive` |
 
 ---
 
