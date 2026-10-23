@@ -4,7 +4,7 @@
 ### Evrensel, Ultra Hızlı ve Minimalist Medya İndirici
 *Universal, Ultra-Fast & Minimalist Media Downloader*
 
-[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.1-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.2-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(64--bit)-0078D6?style=for-the-badge&logo=windows11&logoColor=white)](../../releases/latest)
 [![Vibe Coding](https://img.shields.io/badge/%E2%9C%A8%20Crafted%20with-VIBE%20CODING-8A2BE2?style=for-the-badge)](https://github.com/abivibe/Kara-Delik)
 [![Security](https://img.shields.io/badge/Defender%20Scan-100%25%20CLEAN-success?style=for-the-badge&logo=shield&logoColor=white)](#-g%C3%BCvenlik-ve-vir%C3%BCs-taramas%C4%B1--security--virus-scan)
