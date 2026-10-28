@@ -91,7 +91,10 @@ class Mp4Fixer {
           ? expectedDuration.inSeconds
           : 0;
 
-      // Beklenen süre verilmediyse mfra veya fragmanlardan tahmin et
+      // Beklenen süre verilmediyse sidx veya mfra/tfra bloklarından tahmin et
+      if (targetSeconds <= 0) {
+        targetSeconds = _estimateDurationFromSidx(bytes);
+      }
       if (targetSeconds <= 0) {
         targetSeconds = _estimateDurationFromMfra(bytes, timescale);
       }
@@ -107,12 +110,12 @@ class Mp4Fixer {
         mvhdBd.setUint32(durFieldOffsetInMvhd, targetDurValue);
       }
 
-      // trak -> tkhd bloklarını da güncelle
-      _patchAllTkhd(bytes, moovOffset + 8, moovEnd, targetDurValue, is64Bit);
+      // trak -> tkhd ve mdia -> mdhd bloklarını da güncelle
+      _patchAllTkhd(bytes, moovOffset + 8, moovEnd, targetDurValue, targetSeconds);
 
       // Dosyaya geri yaz
       await file.writeAsBytes(bytes);
-      debugPrint('MP4 duration başarıyla onarıldı: $targetSeconds saniye');
+      debugPrint('MP4 duration ve başlıkları başarıyla onarıldı: $targetSeconds saniye');
       return true;
     } catch (e) {
       debugPrint('MP4 duration onarım hatası: $e');
@@ -125,7 +128,7 @@ class Mp4Fixer {
     int moovStart,
     int moovEnd,
     int durationValue,
-    bool is64Bit,
+    int targetSeconds,
   ) {
     int offset = moovStart;
     while (offset + 8 <= moovEnd) {
@@ -139,15 +142,16 @@ class Mp4Fixer {
           final tSize = ByteData.sublistView(bytes, trakSub, trakSub + 4).getUint32(0);
           final tType = String.fromCharCodes(bytes.sublist(trakSub + 4, trakSub + 8));
 
-          if (tType == 'tkhd') {
+          if (tType == 'tkhd' && trakSub + tSize <= bytes.length) {
             final version = bytes[trakSub + 8];
             final tkhdBd = ByteData.sublistView(bytes, trakSub + 8, trakSub + tSize);
-            if (version == 1) {
+            if (version == 1 && tSize >= 36) {
               tkhdBd.setUint64(24, durationValue);
-            } else {
+            } else if (version == 0 && tSize >= 24) {
               tkhdBd.setUint32(16, durationValue);
             }
-            break;
+          } else if (tType == 'mdia' && trakSub + tSize <= bytes.length) {
+            _patchMdhdInMdia(bytes, trakSub + 8, trakSub + tSize, targetSeconds);
           }
 
           if (tSize <= 0) break;
@@ -158,6 +162,72 @@ class Mp4Fixer {
       if (size <= 0) break;
       offset += size;
     }
+  }
+
+  static void _patchMdhdInMdia(
+    Uint8List bytes,
+    int mdiaStart,
+    int mdiaEnd,
+    int targetSeconds,
+  ) {
+    int offset = mdiaStart;
+    while (offset + 8 <= mdiaEnd && offset + 8 <= bytes.length) {
+      final size = ByteData.sublistView(bytes, offset, offset + 4).getUint32(0);
+      final type = String.fromCharCodes(bytes.sublist(offset + 4, offset + 8));
+      if (type == 'mdhd' && offset + size <= bytes.length) {
+        final version = bytes[offset + 8];
+        final mdhdBd = ByteData.sublistView(bytes, offset + 8, offset + size);
+        if (version == 1 && size >= 36) {
+          final ts = mdhdBd.getUint32(20);
+          final curDur = mdhdBd.getUint64(24);
+          if (curDur == 0 && ts > 0) {
+            mdhdBd.setUint64(24, targetSeconds * ts);
+          }
+        } else if (version == 0 && size >= 24) {
+          final ts = mdhdBd.getUint32(12);
+          final curDur = mdhdBd.getUint32(16);
+          if (curDur == 0 && ts > 0) {
+            mdhdBd.setUint32(16, targetSeconds * ts);
+          }
+        }
+        break;
+      }
+      if (size <= 0) break;
+      offset += size;
+    }
+  }
+
+  /// Instagram, Facebook ve YouTube DASH MP4 dosyalarındaki 'sidx' (Segment Index) kutusundan gerçek süreyi hesaplar
+  static int _estimateDurationFromSidx(Uint8List bytes) {
+    try {
+      int offset = 0;
+      final limit = bytes.length < 65536 ? bytes.length : 65536;
+      while (offset + 8 <= limit) {
+        final size = ByteData.sublistView(bytes, offset, offset + 4).getUint32(0);
+        final type = String.fromCharCodes(bytes.sublist(offset + 4, offset + 8));
+        if (type == 'sidx' && offset + size <= bytes.length && size >= 32) {
+          final version = bytes[offset + 8];
+          final sidxBd = ByteData.sublistView(bytes, offset + 8, offset + size);
+          final timescale = sidxBd.getUint32(8);
+          final countOffset = version == 0 ? 22 : 30;
+          if (countOffset + 2 <= sidxBd.lengthInBytes) {
+            final refCount = sidxBd.getUint16(countOffset);
+            int totalSubsegDur = 0;
+            int refPos = countOffset + 2;
+            for (int i = 0; i < refCount && refPos + 12 <= sidxBd.lengthInBytes; i++) {
+              totalSubsegDur += sidxBd.getUint32(refPos + 4);
+              refPos += 12;
+            }
+            if (totalSubsegDur > 0 && timescale > 0) {
+              return (totalSubsegDur / timescale).round();
+            }
+          }
+        }
+        if (size <= 0) break;
+        offset += size;
+      }
+    } catch (_) {}
+    return 0;
   }
 
   static int _estimateDurationFromMfra(Uint8List bytes, int timescale) {

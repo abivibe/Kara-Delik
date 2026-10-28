@@ -35,7 +35,7 @@ namespace KaraDelik.Updater
             // [3] = mainAppPath
             _downloadUrl = args != null && args.Length > 0 && !string.IsNullOrWhiteSpace(args[0])
                 ? args[0].Trim()
-                : "https://github.com/abivibe/Kara-Delik/releases/download/v1.0.1/KaraDelik_Setup.exe";
+                : "https://github.com/abivibe/Kara-Delik/releases/latest/download/KaraDelik_Setup.exe";
 
             _themeMode = args != null && args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
                 ? args[1].Trim().ToLowerInvariant()
@@ -221,6 +221,7 @@ namespace KaraDelik.Updater
                 SmoothChangeStatus(_isEn ? "Installing new version..." : "Yeni sürüm kuruluyor...");
                 StepDetailTextBlock.Text = _isEn ? "Installing..." : "Kuruluyor...";
                 DownloadProgressBar.Value = 100;
+                DownloadProgressBar.IsIndeterminate = false;
                 PercentTextBlock.Text = _isEn ? "100%" : "%100";
 
                 await Task.Delay(500);
@@ -233,10 +234,16 @@ namespace KaraDelik.Updater
                     CreateNoWindow = true
                 };
 
-                var setupProcess = Process.Start(startInfo);
-                if (setupProcess != null)
+                if (!string.IsNullOrWhiteSpace(_mainAppPath))
                 {
+                    startInfo.Arguments += " /DIR=\"" + Path.GetDirectoryName(Path.GetFullPath(_mainAppPath)) + "\"";
+                }
+                using (var setupProcess = Process.Start(startInfo))
+                {
+                    if (setupProcess == null) throw new InvalidOperationException("Setup could not be started.");
                     await Task.Run(() => setupProcess.WaitForExit());
+                    if (setupProcess.ExitCode != 0)
+                        throw new InvalidOperationException("Setup failed (code " + setupProcess.ExitCode + ").");
                 }
 
                 // 3. TAMAMLANMA VE YENİDEN BAŞLATMA
@@ -303,6 +310,8 @@ namespace KaraDelik.Updater
                 {
                     client.Timeout = TimeSpan.FromMinutes(10);
                     client.DefaultRequestHeaders.Add("User-Agent", "KaraDelik-App");
+                    DownloadProgressBar.IsIndeterminate = false;
+                    DownloadProgressBar.Value = 0;
 
                     using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
                     {
@@ -330,6 +339,7 @@ namespace KaraDelik.Updater
 
                                     Dispatcher.Invoke(() =>
                                     {
+                                        DownloadProgressBar.IsIndeterminate = false;
                                         DownloadProgressBar.Value = percent;
                                         PercentTextBlock.Text = _isEn ? (percent.ToString() + "%") : ("%" + percent.ToString());
                                     });

@@ -4,10 +4,10 @@
 ### Evrensel, Ultra Hızlı ve Minimalist Medya İndirici
 *Universal, Ultra-Fast & Minimalist Media Downloader*
 
-[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.2-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.3-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(64--bit)-0078D6?style=for-the-badge&logo=windows11&logoColor=white)](../../releases/latest)
 [![Vibe Coding](https://img.shields.io/badge/%E2%9C%A8%20Crafted%20with-VIBE%20CODING-8A2BE2?style=for-the-badge)](https://github.com/abivibe/Kara-Delik)
-[![Security](https://img.shields.io/badge/Defender%20Scan-100%25%20CLEAN-success?style=for-the-badge&logo=shield&logoColor=white)](#-g%C3%BCvenlik-ve-vir%C3%BCs-taramas%C4%B1--security--virus-scan)
+[![Checksum](https://img.shields.io/badge/Checksum-SHA--256-blue?style=for-the-badge)](../../releases/tag/v1.0.3)
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/vibeabi)
 
@@ -87,19 +87,16 @@ Getting started takes less than **30 seconds**:
 
 ---
 
-## 🛡️ Güvenlik ve Virüs Taraması | Security & Virus Scan
+## 📦 Dosya Doğrulama | File Verification
 
-**Kara Delik** kurulum paketi (`KaraDelik_Setup.exe`), yayınlanmadan önce güncel güvenlik motorları ile taranmış ve doğrulanmıştır. Bağımsız bir geliştirici paketi olduğu için Windows SmartScreen ilk çalıştırmada standart bir bilgi ekranı gösterebilir (**"Ek Bilgi -> Yine de Çalıştır"** diyerek güvenle devam edebilirsiniz).
+**v1.0.3:** Verilen altı bağlantıda MP4 ve MP3 indirmeleri ikişer kez doğrulandı. / MP4 and MP3 downloads were verified twice for each of the six supplied links. See [release verification and build notes](docs/releases/v1.0.3.md).
 
-*The installer package (`KaraDelik_Setup.exe`) has been thoroughly scanned and verified prior to release.*
-
-| Güvenlik Kontrolü / Check | Sonuç / Status | Detay / Details |
+| Kontrol / Check | Sonuç / Status | Detay / Details |
 | :--- | :--- | :--- |
 | **Dosya Adı / File Name** | `KaraDelik_Setup.exe` | Windows 64-bit Kurulum Paketi (Installer) |
-| **Dosya Boyutu / File Size** | `28.46 MB` (`29,837,239 bytes`) | Inno Setup v6.7.1 (LZMA2 Paketleme) |
-| **Microsoft Defender Antivirus** | ✅ **TEMİZ / CLEAN (0 Tehdit)** | Özel Tam Dosya Taraması (`MpCmdRun -ScanType 3`) |
-| **SHA-256 Doğrulama / Hash** | `99e45528f876a076c5055e49f2bbf574d377cee50dcfba1151cf5c6a384fbd36` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
-| **Virüs Total Scan Result & Tarama Sonuçları** | `[Scan Result](https://www.virustotal.com/gui/file/99e45528f876a076c5055e49f2bbf574d377cee50dcfba1151cf5c6a384fbd36/detection)` | `False Positive` |
+| **Dosya Boyutu / File Size** | `137,235,376 bytes` | Windows setup, LZMA2 compression |
+| **SHA-256 Doğrulama / Hash** | `0c76585942ce737ba19d7acb8828c8ce4a8f4032927ce444f710e02f6697409a` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **İndirme Testleri / Download Tests** | `24/24 passed` | YouTube, Shorts, Instagram, TikTok, X, Facebook; MP4 + MP3 |
 
 ---
 

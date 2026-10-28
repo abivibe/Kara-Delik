@@ -1,8 +1,8 @@
 ; Inno Setup Script for KaraDelik Downloader
-; Created for KaraDelik 1.0.2
+; Created for KaraDelik 1.0.3
 
 #define MyAppName "KaraDelik"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "KaraDelik"
 #define MyAppExeName "karadelik.exe"
 
@@ -33,13 +33,13 @@ CloseApplicationsFilter=*.exe
 RestartApplications=no
 
 ; Meşru yayıncı ve sürüm künyesi (Antivirüs sezgisel motorlarının güvenini sağlar)
-VersionInfoVersion=1.0.2.0
+VersionInfoVersion=1.0.3.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Video ve Medya İndirici Kurulumu
 VersionInfoTextVersion={#MyAppVersion}
 VersionInfoCopyright=Copyright © 2026 {#MyAppPublisher}. Tüm hakları saklıdır.
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.0.2.0
+VersionInfoProductVersion=1.0.3.0
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
@@ -72,36 +72,61 @@ Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; S
 
 ; Kurulum tamamlanınca uygulamayı başlat
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; v1.0.2 runs its updater in the install directory; setup must restart after replacing it.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent; Check: ShouldRestartLegacyUpdate
 
 [Code]
 var
   FilesListBox: TNewListBox;
+  LegacyUpdaterWasRunning: Boolean;
+
+function ShouldRestartLegacyUpdate(): Boolean;
+begin
+  Result := LegacyUpdaterWasRunning;
+end;
 
 procedure KillRunningProcesses();
 var
-  ResultCode: Integer;
+  Locator, Wmi, Processes, Proc: Variant;
+  I: Integer;
+  ProcessPath: String;
 begin
-  Exec('taskkill.exe', '/F /T /IM karadelik.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /T /IM KaraDelikNotifier.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /T /IM yt-dlp.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /T /IM ffmpeg.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Wmi := Locator.ConnectServer('', 'root\CIMV2');
+    Processes := Wmi.ExecQuery('SELECT * FROM Win32_Process WHERE Name = ''karadelik.exe'' OR Name = ''KaraDelikNotifier.exe'' OR Name = ''yt-dlp.exe'' OR Name = ''ffmpeg.exe'' OR Name = ''Updater.exe''');
+    for I := 0 to Processes.Count - 1 do
+    begin
+      try
+        Proc := Processes.ItemIndex(I);
+        ProcessPath := Proc.ExecutablePath;
+        if CompareText(ExtractFileDir(ProcessPath), RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0 then
+        begin
+          if CompareText(ExtractFileName(ProcessPath), 'Updater.exe') = 0 then
+            LegacyUpdaterWasRunning := True;
+          Proc.Terminate();
+        end;
+      except
+        Log('Process could not be inspected or stopped.');
+      end;
+    end;
+  except
+    Log('Process inspection unavailable; installer will handle locked files.');
+  end;
   Sleep(300);
 end;
 
 // Kuruluma başlarken çalışan eski exe'leri zorla kapat
-function InitializeSetup(): Boolean;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   KillRunningProcesses();
-  Result := True;
+  Result := '';
 end;
 
 // Kaldırma işlemi başlatıldığında çalışan tüm KaraDelik exe'lerini zorla kapat
 function InitializeUninstall(): Boolean;
-var
-  ResultCode: Integer;
 begin
   KillRunningProcesses();
-  Exec('taskkill.exe', '/F /T /IM Updater.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(200);
   Result := True;
 end;

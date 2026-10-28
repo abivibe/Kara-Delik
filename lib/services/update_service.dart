@@ -6,8 +6,17 @@ import 'package:path/path.dart' as path_lib;
 import 'localization_service.dart';
 
 class UpdateService {
-  // Mevcut uygulama sürümü (v1.0.2)
-  static const String currentVersion = '1.0.2';
+  static const String currentVersion = '1.0.3';
+
+  static String? selectSetupUrl(List<dynamic> assets) {
+    for (final asset in assets) {
+      if (asset is Map<String, dynamic> &&
+          asset['name']?.toString().toLowerCase() == 'karadelik_setup.exe') {
+        return asset['browser_download_url'] as String?;
+      }
+    }
+    return null;
+  }
 
   static const String _apiEndpoint =
       'https://api.github.com/repos/abivibe/Kara-Delik/releases/latest';
@@ -51,17 +60,8 @@ class UpdateService {
       if (tagName == null || tagName.isEmpty) return;
 
       // Assets içindeki .exe uzantılı Setup dosyasının browser_download_url adresini al
-      String? downloadUrl;
       final assets = data['assets'] as List<dynamic>? ?? [];
-      for (final asset in assets) {
-        if (asset is Map<String, dynamic>) {
-          final name = (asset['name'] as String? ?? '').toLowerCase();
-          if (name.endsWith('.exe')) {
-            downloadUrl = asset['browser_download_url'] as String?;
-            break;
-          }
-        }
-      }
+      final downloadUrl = selectSetupUrl(assets);
 
       if (downloadUrl == null || downloadUrl.isEmpty) return;
 
@@ -313,8 +313,17 @@ class UpdateService {
       final mainAppExePath = Platform.resolvedExecutable;
 
       if (File(updaterPath).existsSync()) {
+        // Run outside the install directory so setup can replace Updater.exe.
+        final staging = await Directory.systemTemp.createTemp('karadelik-updater-');
+        final stagedUpdater = await File(updaterPath).copy(
+          path_lib.join(staging.path, 'Updater.exe'),
+        );
+        final config = File('$updaterPath.config');
+        if (await config.exists()) {
+          await config.copy('${stagedUpdater.path}.config');
+        }
         await Process.start(
-          updaterPath,
+          stagedUpdater.path,
           [downloadUrl, themeArg, langArg, mainAppExePath],
           mode: ProcessStartMode.detached,
         );

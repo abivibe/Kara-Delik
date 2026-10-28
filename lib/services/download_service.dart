@@ -361,7 +361,7 @@ class DownloadService {
     return null;
   }
 
-  /// X (Twitter) videosunu FxTwitter / FixupX uç noktalarından çözer
+  /// X (Twitter) videosunu FxTwitter / FixupX / VxTwitter uç noktalarından en yüksek bit hızı ve çözünürlükle çözer
   Future<String?> _resolveTwitterUrl(String targetUrl, [DownloadQuality? quality]) async {
     try {
       final match = RegExp(
@@ -377,10 +377,12 @@ class DownloadService {
         'https://api.fxtwitter.com/status/$tweetId',
         'https://api.fixupx.com/2/status/$tweetId',
         'https://api.fixupx.com/status/$tweetId',
+        'https://api.vxtwitter.com/Twitter/status/$tweetId',
       ];
       if (user != null && user != 'i') {
         endpoints.add('https://api.fxtwitter.com/$user/status/$tweetId');
         endpoints.add('https://api.fixupx.com/$user/status/$tweetId');
+        endpoints.add('https://api.vxtwitter.com/$user/status/$tweetId');
       }
 
       for (final ep in endpoints) {
@@ -408,29 +410,55 @@ class DownloadService {
                   ? data['status'] as Map
                   : ((data['tweet'] is Map) ? data['tweet'] as Map : data);
 
-              // 1. media.videos listesi (MP3 için en optimize/hafif akış, Video için en yüksek kaliteli MP4 akışını seç)
+              // 1. media.videos listesi (MP3 için en optimize/hafif akış, Video için en yüksek çözünürlük ve bit hızına sahip MP4 akışını seç)
               if (tweet['media'] is Map && tweet['media']['videos'] is List) {
                 final videos = tweet['media']['videos'] as List;
                 String? bestUrl;
-                int selectedRes = (quality?.isAudioOnly == true) ? 999999999 : 0;
+                int selectedScore = (quality?.isAudioOnly == true) ? 999999999999 : 0;
                 for (final v in videos) {
-                  if (v is Map && v['url'] != null) {
-                    final u = v['url'].toString();
-                    if (u.isNotEmpty && u.startsWith('http')) {
-                      final w = (v['width'] is num) ? (v['width'] as num).toInt() : 0;
-                      final h = (v['height'] is num) ? (v['height'] as num).toInt() : 0;
-                      final res = w * h;
-                      if (quality?.isAudioOnly == true) {
-                        // MP3 için en hafif MP4 akışını seç (indirilecek bayt miktarını en aza indirir, ses kalitesi aynı kalır)
-                        if (bestUrl == null || (res > 0 && res < selectedRes)) {
-                          bestUrl = u;
-                          selectedRes = res;
+                  if (v is Map) {
+                    // Süreyi kaydet (MP4 Başlık Onarıcı için)
+                    if (v['duration'] is num) {
+                      final dSec = (v['duration'] as num).round();
+                      if (dSec > 0) {
+                        lastResolvedVideoDuration = Duration(seconds: dSec);
+                      }
+                    }
+
+                    // Eğer variants listesi varsa en yüksek bitrate MP4 varyantını tara
+                    if (v['variants'] is List && quality?.isAudioOnly != true) {
+                      for (final vr in (v['variants'] as List)) {
+                        if (vr is Map && vr['url'] != null) {
+                          final vu = vr['url'].toString();
+                          final ct = (vr['content_type'] ?? '').toString().toLowerCase();
+                          if (vu.startsWith('http') && (ct.contains('mp4') || vu.contains('.mp4'))) {
+                            final br = (vr['bitrate'] is num) ? (vr['bitrate'] as num).toInt() : 0;
+                            if (bestUrl == null || br > selectedScore) {
+                              bestUrl = vu;
+                              selectedScore = br;
+                            }
+                          }
                         }
-                      } else {
-                        // Video için en yüksek çözünürlüğü seç
-                        if (bestUrl == null || res > selectedRes) {
-                          bestUrl = u;
-                          selectedRes = res;
+                      }
+                    }
+
+                    if (v['url'] != null) {
+                      final u = v['url'].toString();
+                      if (u.isNotEmpty && u.startsWith('http')) {
+                        final w = (v['width'] is num) ? (v['width'] as num).toInt() : 0;
+                        final h = (v['height'] is num) ? (v['height'] as num).toInt() : 0;
+                        final br = (v['bitrate'] is num) ? (v['bitrate'] as num).toInt() : 0;
+                        final score = (w * h * 1000) + (br ~/ 1000);
+                        if (quality?.isAudioOnly == true) {
+                          if (bestUrl == null || (score > 0 && score < selectedScore)) {
+                            bestUrl = u;
+                            selectedScore = score;
+                          }
+                        } else {
+                          if (bestUrl == null || score > selectedScore) {
+                            bestUrl = u;
+                            selectedScore = score;
+                          }
                         }
                       }
                     }
@@ -439,13 +467,19 @@ class DownloadService {
                 if (bestUrl != null) return bestUrl;
               }
 
-              // 2. media_extended listesi
+              // 2. media_extended listesi (VxTwitter formatı)
               if (tweet['media_extended'] is List) {
                 final mediaList = tweet['media_extended'] as List;
                 for (final item in mediaList) {
                   if (item is Map &&
-                      item['type'] == 'video' &&
+                      (item['type'] == 'video' || item['type'] == 'gif') &&
                       item['url'] != null) {
+                    if (item['duration_millis'] is num) {
+                      final dMs = (item['duration_millis'] as num).toInt();
+                      if (dMs > 0) {
+                        lastResolvedVideoDuration = Duration(milliseconds: dMs);
+                      }
+                    }
                     final videoUrl = item['url'].toString();
                     if (videoUrl.isNotEmpty && videoUrl.startsWith('http')) return videoUrl;
                   }
@@ -482,7 +516,7 @@ class DownloadService {
     return null;
   }
 
-  /// TikTok videosunu filigransız doğrudan çözer (tüm orijinal ses ve konuşmaları içerir)
+  /// TikTok videosunu filigransız en yüksek HD (1080p) kalitede çözer (tüm orijinal ses ve konuşmaları içerir)
   Future<String?> _resolveTikTokUrl(String targetUrl, DownloadQuality quality) async {
     try {
       final response = await _dio.post(
@@ -500,11 +534,20 @@ class DownloadService {
         if (data is Map && data['data'] != null) {
           final videoData = data['data'];
           if (videoData is Map) {
-            // NOT: MP3 indirmelerinde videoData['music'] kullanılmaz!
-            // videoData['music'] sadece arka plana eklenen müzik klibini verir ve
-            // videodaki konuşmaları/sesleri yok sayar. Videonun tam akışı (play/wmplay)
-            // alınarak tüm ses eksiksiz ve kayıpsız biçimde MP3'e dönüştürülür.
-            final directUrl = (videoData['play'] ?? videoData['wmplay'] ?? videoData['hdplay']) as String?;
+            // MP4 süre başlık onarıcı için süreyi kaydet
+            if (videoData['duration'] is num) {
+              final durSec = (videoData['duration'] as num).toInt();
+              if (durSec > 0) {
+                lastResolvedVideoDuration = Duration(seconds: durSec);
+              }
+            }
+
+            // Video indirmelerinde en yüksek kaliteli filigransız 1080p HD akışı (hdplay) önceliklidir!
+            // MP3 indirmelerinde ise videodaki tüm konuşma ve orijinal sesleri eksiksiz içeren
+            // standart play akışı hız avantajıyla çekilip MP3'e dönüştürülür.
+            final directUrl = quality.isAudioOnly
+                ? (videoData['play'] ?? videoData['hdplay'] ?? videoData['wmplay']) as String?
+                : (videoData['hdplay'] ?? videoData['play'] ?? videoData['wmplay']) as String?;
             if (directUrl != null && directUrl.isNotEmpty) {
               return directUrl.startsWith('http')
                   ? directUrl
@@ -673,7 +716,7 @@ class DownloadService {
     return url.split('?').first;
   }
 
-  /// Instagram doğrudan embed sayfası üzerinden video bağlantısı arar
+  /// Instagram doğrudan embed ve sayfa meta katmanları üzerinden en yüksek çözünürlüklü video bağlantısını arar
   Future<String?> _resolveInstagramEmbed(String targetUrl) async {
     try {
       final codeMatch = RegExp(
@@ -689,7 +732,21 @@ class DownloadService {
       final endpoints = [
         'https://www.instagram.com/reel/$shortcode/embed/captioned/',
         'https://www.instagram.com/p/$shortcode/embed/captioned/',
+        'https://www.instagram.com/reel/$shortcode/?__a=1&__d=dis',
       ];
+
+      bool isValidVideoLink(String u) {
+        final lower = u.toLowerCase();
+        if (lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.webp') ||
+            lower.contains('/v/t51.') ||
+            lower.contains('mime=image')) {
+          return false;
+        }
+        return u.startsWith('http');
+      }
 
       for (final embedUrl in endpoints) {
         try {
@@ -709,31 +766,47 @@ class DownloadService {
 
           if (response.statusCode == 200 && response.data != null) {
             final content = response.data.toString();
+
+            // 0. video_duration varsa yakala (MP4 Başlık Onarıcı için)
+            final durMatch = RegExp(r'"video_duration"\s*:\s*([0-9.]+)').firstMatch(content) ??
+                RegExp(r'video_duration\\":([0-9.]+)').firstMatch(content);
+            if (durMatch != null) {
+              final durVal = double.tryParse(durMatch.group(1)!) ?? 0;
+              if (durVal > 0) {
+                lastResolvedVideoDuration = Duration(milliseconds: (durVal * 1000).round());
+              }
+            }
+
             // 1. JSON escape video_url
             var videoMatch = RegExp(r'video_url\\":\\"([^"\\]+)\\"').firstMatch(content);
             if (videoMatch != null) {
-              return videoMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              final cand = videoMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              if (isValidVideoLink(cand)) return cand;
             }
             // 2. Düz JSON video_url
             videoMatch = RegExp(r'"video_url"\s*:\s*"([^"]+)"').firstMatch(content);
             if (videoMatch != null) {
-              return videoMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              final cand = videoMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              if (isValidVideoLink(cand)) return cand;
             }
             // 3. contentUrl JSON
             var contentMatch = RegExp(r'contentUrl\\":\\"([^"\\]+)\\"').firstMatch(content) ??
                 RegExp(r'"contentUrl"\s*:\s*"([^"]+)"').firstMatch(content);
             if (contentMatch != null) {
-              return contentMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              final cand = contentMatch.group(1)!.replaceAll(r'\u0026', '&').replaceAll(r'\/', '/');
+              if (isValidVideoLink(cand)) return cand;
             }
             // 4. video src etiketi
             final videoTagMatch = RegExp(r'<video[^>]+src="([^"]+)"', caseSensitive: false).firstMatch(content);
             if (videoTagMatch != null) {
-              return videoTagMatch.group(1)!.replaceAll('&amp;', '&');
+              final cand = videoTagMatch.group(1)!.replaceAll('&amp;', '&');
+              if (isValidVideoLink(cand)) return cand;
             }
             // 5. og:video meta etiketi
             final ogMatch = RegExp(r'<meta\s+property="og:video"\s+content="([^"]+)"', caseSensitive: false).firstMatch(content);
             if (ogMatch != null) {
-              return ogMatch.group(1)!.replaceAll('&amp;', '&');
+              final cand = ogMatch.group(1)!.replaceAll('&amp;', '&');
+              if (isValidVideoLink(cand)) return cand;
             }
           }
         } catch (_) {}
@@ -745,7 +818,7 @@ class DownloadService {
   }
 
 
-  /// Facebook video akışını çözer (SnapSave, Cobalt ve doğrudan sayfa tarama)
+  /// Facebook video akışını en yüksek çözünürlükle (1080p FHD / HD öncelikli) çözer
   Future<String?> _resolveFacebookUrl(
     String targetUrl,
     DownloadQuality quality,
@@ -773,7 +846,7 @@ class DownloadService {
       } catch (_) {}
     }
 
-    // 1. Cobalt API yedek sunucuları ile çözme
+    // 1. Cobalt API yedek sunucuları ile çözme (max kalite)
     final cobaltResult = await _resolveCobaltInstanceUrl(
       targetUrl: effectiveUrl,
       quality: quality,
@@ -788,20 +861,21 @@ class DownloadService {
       if (cobaltVideo != null) return cobaltVideo;
     }
 
-    // 2. SnapSave ile Facebook HD/SD çözme
+    // 2. SnapSave ile Facebook 1080p/HD çözme
     final snapResult = await _resolveSnapSaveInstagram(effectiveUrl) ??
         await _resolveSnapSaveInstagram(targetUrl);
     if (snapResult != null) return snapResult;
 
-    // 3. Facebook doğrudan sayfa başlıkları ve meta etiketleri üzerinden arama
+    // 3. Facebook doğrudan sayfa başlıkları ve meta etiketleri üzerinden HD öncelikli arama
     try {
       final response = await _dio.get(
-        targetUrl,
+        effectiveUrl,
         options: Options(
           headers: {
             'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Sec-Fetch-Mode': 'navigate',
           },
           followRedirects: true,
           validateStatus: (status) => status != null && status < 500,
@@ -809,27 +883,37 @@ class DownloadService {
       );
       if (response.statusCode == 200 && response.data != null) {
         final html = response.data.toString();
-        // HD video akışı
-        final hdMatch = RegExp(
-          r'"playable_url_quality_hd":"([^"]+)"|"browser_native_hd_url":"([^"]+)"',
-        ).firstMatch(html);
-        if (hdMatch != null) {
-          final raw = (hdMatch.group(1) ?? hdMatch.group(2))!;
-          return raw
-              .replaceAll(r'\/', '/')
-              .replaceAll(r'\u0026', '&')
-              .replaceAll('&amp;', '&');
+        // HD video akışı (1080p / 720p)
+        final hdPatterns = [
+          r'"playable_url_quality_hd":"([^"]+)"',
+          r'"browser_native_hd_url":"([^"]+)"',
+          r'"hd_src_no_ratelimit":"([^"]+)"',
+          r'"hd_src":"([^"]+)"',
+        ];
+        for (final pat in hdPatterns) {
+          final m = RegExp(pat).firstMatch(html);
+          if (m != null && m.group(1) != null && m.group(1)! != 'null') {
+            return m.group(1)!
+                .replaceAll(r'\/', '/')
+                .replaceAll(r'\u0026', '&')
+                .replaceAll('&amp;', '&');
+          }
         }
         // SD video akışı
-        final sdMatch = RegExp(
-          r'"playable_url":"([^"]+)"|"browser_native_sd_url":"([^"]+)"',
-        ).firstMatch(html);
-        if (sdMatch != null) {
-          final raw = (sdMatch.group(1) ?? sdMatch.group(2))!;
-          return raw
-              .replaceAll(r'\/', '/')
-              .replaceAll(r'\u0026', '&')
-              .replaceAll('&amp;', '&');
+        final sdPatterns = [
+          r'"playable_url":"([^"]+)"',
+          r'"browser_native_sd_url":"([^"]+)"',
+          r'"sd_src_no_ratelimit":"([^"]+)"',
+          r'"sd_src":"([^"]+)"',
+        ];
+        for (final pat in sdPatterns) {
+          final m = RegExp(pat).firstMatch(html);
+          if (m != null && m.group(1) != null && m.group(1)! != 'null') {
+            return m.group(1)!
+                .replaceAll(r'\/', '/')
+                .replaceAll(r'\u0026', '&')
+                .replaceAll('&amp;', '&');
+          }
         }
       }
     } catch (e) {
@@ -1472,6 +1556,7 @@ class DownloadService {
           return resultPath;
         }
       } catch (e) {
+        if (_cancelToken?.isCancelled == true) rethrow;
         debugPrint('Windows yt-dlp MP3 indirme hatası: $e. Alternatif katmanlara geçiliyor...');
       }
     }
@@ -1721,10 +1806,10 @@ class DownloadService {
       final allVideos = af.where((f) => (f['type'] as String? ?? '').contains('video')).toList();
       final allAudios = af.where((f) => (f['type'] as String? ?? '').contains('audio')).toList();
       if (allVideos.isEmpty || allAudios.isEmpty) return null;
-
-      // Video akışlarını seç
-      
-      final List<dynamic> candidateVideos = allVideos;
+      final List<dynamic> candidateVideos;
+      {
+        candidateVideos = allVideos;
+      }
 
       int parseHeight(dynamic v) {
         final s = (v?['resolution'] ?? v?['qualityLabel'] ?? '').toString();
@@ -1922,6 +2007,7 @@ class DownloadService {
           return resultPath;
         }
       } catch (e) {
+        if (_cancelToken?.isCancelled == true) rethrow;
         debugPrint('Windows yt-dlp HQ indirme hatası: $e. Alternatif katmanlara geçiliyor...');
       }
     }
@@ -2036,14 +2122,18 @@ class DownloadService {
       // 1. En yüksek kaliteli video akışını seç (4K, 1440p, 1080p, 720p)
       final allVideos = manifest.videoOnly.toList();
       if (allVideos.isEmpty) return null;
-      
-      final List<VideoStreamInfo> candidateVideos = allVideos;
+      final List<VideoStreamInfo> candidateVideos;
+      {
+        candidateVideos = allVideos;
+      }
 
       candidateVideos.sort((a, b) {
         final cmp = b.videoResolution.height.compareTo(a.videoResolution.height);
         if (cmp != 0) return cmp;
-        return (b.container.name.toLowerCase() == 'mp4' ? 1 : 0)
+        final containerCmp = (b.container.name.toLowerCase() == 'mp4' ? 1 : 0)
             .compareTo(a.container.name.toLowerCase() == 'mp4' ? 1 : 0);
+        if (containerCmp != 0) return containerCmp;
+        return b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond);
       });
       final selectedVideo = () {
         final seenHeights = <int>[];
@@ -2527,6 +2617,7 @@ class DownloadService {
     }
     _isDownloading = true;
     _cancelToken = CancelToken();
+    lastResolvedVideoDuration = null;
 
     try {
       // 1. Depolama İzinleri
@@ -2537,6 +2628,34 @@ class DownloadService {
     final timeStamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
     final isYouTube = targetUrl.toLowerCase().contains('youtube.com') ||
         targetUrl.toLowerCase().contains('youtu.be');
+
+    // Keep platform extraction, signed request headers and conversion together.
+    if (Platform.isWindows &&
+        detectPlatformName(targetUrl) == 'Instagram' &&
+        await YtDlpExtraService().findYtDlpExecutable() != null) {
+      try {
+        final result = await YtDlpExtraService().downloadWithProgress(
+          targetUrl: targetUrl,
+          quality: quality,
+          destinationPath: path_lib.join(targetDirectory,
+              'KaraDelik_Instagram_$timeStamp.${quality.isAudioOnly ? 'mp3' : 'mp4'}'),
+          onProgress: onProgress,
+        );
+        if (_cancelToken?.isCancelled == true) {
+          throw Exception('İndirme iptal edildi.');
+        }
+        try {
+          await DownloadHistoryService().addItem(result, url: targetUrl);
+        } catch (e) {
+          debugPrint('Geçmişe eklenemedi: $e');
+        }
+        onProgress(1.0, 'Tamamlandı!');
+        return result;
+      } catch (e) {
+        if (_cancelToken?.isCancelled == true) rethrow;
+        debugPrint('Instagram yerel motor hatası: $e');
+      }
+    }
 
     // 2. YouTube için ses (MP3) doğrudan garantili çok katmanlı motor ile indirme ve dönüştürme
     if (isYouTube && quality.isAudioOnly) {
@@ -2801,6 +2920,14 @@ class DownloadService {
         );
 
         if (await File(resultPath).exists() && await File(resultPath).length() > 1024) {
+          if (resultPath.toLowerCase().endsWith('.mp4')) {
+            onProgress(0.96, 'Video süresi ve başlıkları optimize ediliyor...');
+            await Mp4Fixer.fixDurationIfNeeded(
+              resultPath,
+              expectedDuration: lastResolvedVideoDuration,
+            );
+          }
+
           try {
             await DownloadHistoryService().addItem(resultPath, url: targetUrl);
           } catch (_) {}
@@ -2811,7 +2938,9 @@ class DownloadService {
           return resultPath;
         }
       } catch (fallbackErr) {
+        if (_cancelToken?.isCancelled == true) rethrow;
         debugPrint('Yedek indirme motoru kurtarma hatası: $fallbackErr');
+        throw Exception('İndirme tamamlanamadı: $fallbackErr');
       }
       rethrow;
     }
@@ -2822,7 +2951,6 @@ class DownloadService {
 
   /// Aktif indirmeyi iptal eder
   void cancelDownload() {
-    _isDownloading = false;
     _cancelToken?.cancel('Kullanıcı tarafından iptal edildi.');
     YtDlpExtraService().cancel();
   }

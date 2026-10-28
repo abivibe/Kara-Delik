@@ -11,7 +11,7 @@
         Background="Transparent"
         ShowInTaskbar="True"
         Topmost="True"
-        Icon="..\runner\resources\app_icon.ico">
+        Icon="pack://application:,,,/app_icon.ico">
     <Border x:Name="RootBorder"
             CornerRadius="14"
             BorderThickness="1.2"
@@ -100,16 +100,33 @@
                              Value="0"
                              BorderThickness="0"
                              Background="{DynamicResource TrackBrush}"
-                             Foreground="{DynamicResource AccentBrush}">
+                             Foreground="#3B82F6">
                     <ProgressBar.Template>
                         <ControlTemplate TargetType="ProgressBar">
-                            <Grid ClipToBounds="True">
+                            <Grid x:Name="PART_Track" ClipToBounds="True">
                                 <Border CornerRadius="2" Background="{TemplateBinding Background}" />
                                 <Border x:Name="PART_Indicator"
                                         CornerRadius="2"
                                         HorizontalAlignment="Left"
                                         Background="{TemplateBinding Foreground}" />
                             </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsIndeterminate" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard x:Name="PulseProgress">
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="PART_Indicator"
+                                                                 Storyboard.TargetProperty="Opacity"
+                                                                 From="0.35" To="1" Duration="0:0:0.7"
+                                                                 AutoReverse="True" RepeatBehavior="Forever" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <RemoveStoryboard BeginStoryboardName="PulseProgress" />
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </ProgressBar.Template>
                 </ProgressBar>

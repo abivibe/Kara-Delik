@@ -182,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   String? _notificationBannerFile;
   Timer? _notificationBannerTimer;
+  Timer? _updateCheckTimer;
 
   // Uygulama Açılış & Kapanış Fade Efekti
   late AnimationController _windowFadeController;
@@ -194,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen>
     'a Video & MP3 Downloader',
     'YouTube',
     'Instagram',
+    'TikTok',
     'X (Twitter)',
     'Facebook',
   ];
@@ -432,7 +434,7 @@ class _HomeScreenState extends State<HomeScreen>
         _checkClipboard();
       }
       if (_isWindows) {
-        Future.delayed(const Duration(milliseconds: 800), () {
+        _updateCheckTimer = Timer(const Duration(milliseconds: 800), () {
           if (mounted) {
             UpdateService.checkForUpdates(
               context,
@@ -469,6 +471,7 @@ class _HomeScreenState extends State<HomeScreen>
     _clipboardPollingTimer?.cancel();
     _notificationBannerTimer?.cancel();
     _urlController.dispose();
+    _updateCheckTimer?.cancel();
     super.dispose();
   }
 
@@ -517,6 +520,7 @@ class _HomeScreenState extends State<HomeScreen>
           }
         }
       }
+      
     } catch (_) {}
   }
 
@@ -538,8 +542,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   
 
+  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
     if (state == AppLifecycleState.resumed && _autoClipboardCheck) {
       _checkClipboard();
     }
@@ -564,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Kopyalanan bağlantı için gecikmesiz derhal Windows bildirimini tetikle
         if (_isWindows && !_isPrompting) {
           _showClipboardPromptNotification(url);
-        }
+        } 
 
         if (_detectedUrl != url) {
           setState(() {
@@ -1237,7 +1244,7 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     ),
                   ),
                   Text(
-                    'v2.0.0 (AMOLED Edition)',
+                    'v${UpdateService.currentVersion} (AMOLED Edition)',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: isDark ? Colors.white54 : Colors.black54,
@@ -1709,6 +1716,7 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     appLanguageNotifier.value = tempLang;
                     _downloadService.customDownloadPath = tempPath.isNotEmpty ? tempPath : null;
                     _autoClipboardCheck = tempAutoClipboard;
+                    
                     _saveConfig();
                     Navigator.pop(ctx);
                     _showSnackbar(AppLocalizations.tr('saved_success'));
@@ -1930,15 +1938,25 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      _rotatingPhrases[_currentPhraseIndex],
-                      style: TextStyle(
-                        color: isDark ? Colors.white60 : Colors.black54,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.3,
+                    Expanded(
+                      child: ClipRect(
+                        child: SlideTransition(
+                          position: _rotatingSlideAnimation,
+                          child: FadeTransition(
+                            opacity: _rotatingFadeAnimation,
+                            child: Text(
+                              _rotatingPhrases[_currentPhraseIndex],
+                              style: TextStyle(
+                                color: isDark ? Colors.white60 : Colors.black54,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.3,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
