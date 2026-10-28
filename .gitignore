@@ -39,7 +39,7 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Mobile sources are maintained separately.
+# Mobile sources and packages are maintained separately from this public project.
 /android/
 *.apk
 *.aab

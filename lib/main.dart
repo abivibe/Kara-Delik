@@ -169,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen>
   final DownloadHistoryService _historyService = DownloadHistoryService();
   final TextEditingController _urlController = TextEditingController();
 
-  
+
 
   DownloadState _state = DownloadState.checkingClipboard;
   String _statusText = '';
@@ -425,7 +425,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (_isWindows) {
       _historyService.loadHistory();
-    } 
+    }
 
     _loadConfig();
 
@@ -520,7 +520,7 @@ class _HomeScreenState extends State<HomeScreen>
           }
         }
       }
-      
+
     } catch (_) {}
   }
 
@@ -538,15 +538,13 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {}
   }
 
-  
 
-  
 
-  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _appLifecycleState = state;
     if (state == AppLifecycleState.resumed && _autoClipboardCheck) {
       _checkClipboard();
     }
@@ -571,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Kopyalanan bağlantı için gecikmesiz derhal Windows bildirimini tetikle
         if (_isWindows && !_isPrompting) {
           _showClipboardPromptNotification(url);
-        } 
+        }
 
         if (_detectedUrl != url) {
           setState(() {
@@ -825,7 +823,7 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
           ],
-          
+
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: isDark ? const Color(0xFF222222) : const Color(0xFF1976D2),
@@ -1088,7 +1086,7 @@ class _HomeScreenState extends State<HomeScreen>
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              
+
                               // WINDOWS: OYNAT & KLASÖRDE GÖSTER
                               if (_isWindows) ...[
                                 // OYNAT BUTONU
@@ -1716,7 +1714,7 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     appLanguageNotifier.value = tempLang;
                     _downloadService.customDownloadPath = tempPath.isNotEmpty ? tempPath : null;
                     _autoClipboardCheck = tempAutoClipboard;
-                    
+
                     _saveConfig();
                     Navigator.pop(ctx);
                     _showSnackbar(AppLocalizations.tr('saved_success'));

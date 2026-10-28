@@ -39,7 +39,8 @@ echo ======================================================================
 echo           Kurulum Tamamlandı! Proje Derlemeye Hazır.
 echo ======================================================================
 echo.
-echo Şimdi 'build_all.bat' ile Windows paketlerini oluşturabilirsiniz.
+echo Şimdi 'build_all.bat' betiğini çalıştırarak Windows kurulum paketini
+echo ve Windows tek .EXE dosyasını üretebilirsiniz!
 echo.
 set /p DO_BUILD="Şimdi otomatik derleme başlatılsın mı? (E/H): "
 if /i "%DO_BUILD%"=="E" (

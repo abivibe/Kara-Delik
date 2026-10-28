@@ -60,6 +60,8 @@ Uygulamayı kurmak sadece **30 saniyenizi** alır:
 
 # 🇬🇧 English Guide
 
+This public repository contains the Windows desktop application. Mobile-specific source code and build files are maintained separately.
+
 ## 🕳️ What is Kara Delik (Black Hole)?
 Tired of dealing with ad-ridden, pop-up infested, slow, and sketchy websites just to save a video or audio track from the web?
 

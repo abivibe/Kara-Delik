@@ -132,8 +132,8 @@ class DownloadService {
     ),
   );
 
-  
-  
+
+
 
   CancelToken? _cancelToken;
   bool _isDownloading = false;
@@ -208,7 +208,7 @@ class DownloadService {
     return null;
   }
 
-  
+
 
   /// Platforma uygun kayıt dizinini belirler
   Future<String> getDestinationDirectory() async {
@@ -237,11 +237,11 @@ class DownloadService {
     }
   }
 
-  
 
-  
 
-  
+
+
+
 
   /// Invidious ses akışları arasından yalnızca orijinal ses parçasını seçer (sonradan eklenen dublajları eler)
   List<dynamic> _filterOriginalInvidiousAudios(List<dynamic> audios) {
@@ -1431,7 +1431,7 @@ class DownloadService {
           debugPrint('FFmpeg çalıştırma hatası: $e');
         }
       }
-    } 
+    }
     try {
       final inputFile = File(inputPath);
       if (await inputFile.exists()) {
@@ -1958,7 +1958,7 @@ class DownloadService {
           audioPath: tempAudioPath,
           outputPath: savePath,
         );
-      } 
+      }
 
       try {
         if (await tempVideoFile.exists()) await tempVideoFile.delete();
@@ -1977,7 +1977,7 @@ class DownloadService {
     return null;
   }
 
-  
+
 
   /// YouTube yüksek kalite video indirme:
   /// 1. Katman: Invidious (4K/1440p/1080p doğrudan PoToken akışı + birleştirme)
@@ -2257,12 +2257,12 @@ class DownloadService {
           audioPath: tempAudioPath,
           outputPath: savePath,
         );
-      } 
+      }
 
       if (muxSuccess && await File(savePath).exists() && (await File(savePath).length()) > 1024) {
         return savePath;
       } else {
-        
+
         _hqMuxFailed = true;
         await _log('Muxing tamamlanamadı (ffmpeg bulunamadı veya birleştirme hatası).');
         return null;
@@ -2622,7 +2622,7 @@ class DownloadService {
     try {
       // 1. Depolama İzinleri
       onProgress(0.05, 'Depolama izinleri denetleniyor...');
-    
+
 
     final targetDirectory = await getDestinationDirectory();
     final timeStamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
@@ -2675,7 +2675,7 @@ class DownloadService {
           } catch (e) {
             debugPrint('Geçmişe eklenemedi: $e');
           }
-          
+
 
           onProgress(1.0, 'Tamamlandı!');
           return audioPath;
@@ -2707,7 +2707,7 @@ class DownloadService {
           } catch (e) {
             debugPrint('Geçmişe eklenemedi: $e');
           }
-          
+
 
           onProgress(1.0, 'Tamamlandı!');
           return highQualityPath;
@@ -2815,7 +2815,7 @@ class DownloadService {
       } catch (e) {
         debugPrint('Geçmişe eklenemedi: $e');
       }
-      
+
 
       onProgress(1.0, 'Tamamlandı!');
       return savePath;
@@ -2894,7 +2894,7 @@ class DownloadService {
     } catch (e) {
       debugPrint('Geçmişe eklenemedi: $e');
     }
-    
+
 
     onProgress(1.0, 'Tamamlandı!');
     return savePath;
@@ -2932,7 +2932,7 @@ class DownloadService {
             await DownloadHistoryService().addItem(resultPath, url: targetUrl);
           } catch (_) {}
 
-          
+
 
           onProgress(1.0, 'Tamamlandı!');
           return resultPath;
