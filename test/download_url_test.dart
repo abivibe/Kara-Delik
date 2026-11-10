@@ -2,6 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:karadelik/services/ytdlp_extra_service.dart';
 
 void main() {
+  test('YouTube prefers separate highest quality video and audio', () {
+    expect(YtDlpExtraService.videoFormatForUrl('https://www.youtube.com/watch?v=abc'),
+        'bestvideo+bestaudio/best');
+    expect(YtDlpExtraService.videoFormatForUrl('https://www.instagram.com/reel/abc/'),
+        'bv*+ba/bestvideo+bestaudio/best');
+  });
   test('YouTube explicitly enables the bundled JavaScript runtime', () {
     expect(
         YtDlpExtraService.getExtraArgsForUrl(

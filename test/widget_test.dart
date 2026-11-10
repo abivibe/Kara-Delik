@@ -5,6 +5,10 @@ import 'package:karadelik/services/update_service.dart';
 import 'package:karadelik/services/localization_service.dart';
 
 void main() {
+  testWidgets('Windows title bar includes a system tray button', (tester) async {
+    await tester.pumpWidget(const KaraDelikApp());
+    expect(find.byTooltip(AppLocalizations.tr('tray_minimize')), findsOneWidget);
+  });
   testWidgets('App smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const KaraDelikApp());
     expect(find.text('KaraDelik'), findsOneWidget);

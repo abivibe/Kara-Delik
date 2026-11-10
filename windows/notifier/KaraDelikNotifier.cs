@@ -204,7 +204,7 @@ namespace KaraDelikNotifier
         private double _targetOpacity = 0.98;
         private bool _isClosing = false;
         private bool _isHovered = false;
-        private int _countdownSeconds = 5;
+        private int _countdownSeconds = 15;
 
         private Rectangle _btnDownload;
         private Rectangle _btnShowInApp;
@@ -509,9 +509,7 @@ namespace KaraDelikNotifier
             using (Font linkFont = new Font("Segoe UI", 7.8f, FontStyle.Regular))
             using (SolidBrush linkBrush = new SolidBrush(Color.FromArgb(100, 181, 246)))
             {
-                string infoText = _countdownSeconds > 0
-                    ? string.Format("{0} sn içinde indirilecek...", _countdownSeconds)
-                    : "İndiriliyor...";
+                string infoText = _url;
                 RectangleF linkRect = new RectangleF(textX, 64, Width - textX - 256, 20);
                 StringFormat linkSf = new StringFormat
                 {
@@ -577,9 +575,7 @@ namespace KaraDelikNotifier
                         Alignment = StringAlignment.Center,
                         LineAlignment = StringAlignment.Center
                     };
-                    string dlLabel = _countdownSeconds > 0
-                        ? string.Format("{0} ({1})", _btnText, _countdownSeconds)
-                        : _btnText;
+                    string dlLabel = _btnText;
                     g.DrawString(dlLabel, btnFont, btnText, _btnDownload, sfBtn);
                 }
             }
@@ -680,7 +676,7 @@ namespace KaraDelikNotifier
             _fadeTimer = new Timer { Interval = 15 };
             _fadeTimer.Tick += OnFadeTick;
 
-            _stayTimer = new Timer { Interval = 6000 };
+            _stayTimer = new Timer { Interval = 3000 };
             _stayTimer.Tick += (s, e) =>
             {
                 if (!_isHovered && !_isClosing)

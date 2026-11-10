@@ -13,7 +13,9 @@ void main() {
     'youtube':
         'https://www.youtube.com/watch?v=faHM7E6Yz5E&pp=ugUEEgJ0cg%3D%3D',
     'shorts': 'https://www.youtube.com/shorts/3LFa5au0vM8',
+    'youtube_music': 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
     'instagram': 'https://www.instagram.com/reels/DfA4UOGKbYT/',
+    'tiktok_photo': 'https://www.tiktok.com/@ustura0620/photo/7706267344229747988?_r=1',
     'tiktok':
         'https://www.tiktok.com/@fikrikereviz5/video/7700335817755036948?lang=tr-TR',
     'x': 'https://x.com/bpthaber/status/2115388667195785438/video/1',
@@ -39,7 +41,9 @@ void main() {
           final dir =
               Directory('${root.path}/${entry.key}/${quality.name}/$round')
                 ..createSync(recursive: true);
-          final service = DownloadService()..customDownloadPath = dir.path;
+          final service = DownloadService()
+            ..customDownloadPath = dir.path
+            ..useOriginalYouTubeTitle = Platform.environment['KARADELIK_ORIGINAL_TITLE'] == '1';
           final watch = Stopwatch()..start();
           final result = <String, dynamic>{
             'platform': entry.key,
@@ -58,7 +62,7 @@ void main() {
                 }
               },
             );
-            expect(filePath.endsWith('.${quality.name}'), isTrue);
+            expect(filePath.endsWith('.${quality.fileExtension}'), isTrue);
             final file = File(filePath);
             expect(await file.length(), greaterThan(1024));
             final ffmpeg = File('windows/bin/ffmpeg.exe').absolute.path;
@@ -74,6 +78,22 @@ void main() {
               'csv=p=0',
               filePath
             ]);
+            if (quality.isVideoOnly) {
+              final audioProbe = await Process.run(
+                  File('windows/bin/ffprobe.exe').absolute.path, [
+                '-v', 'error', '-select_streams', 'a', '-show_entries',
+                'stream=codec_name', '-of', 'csv=p=0', filePath,
+              ]);
+              expect(audioProbe.exitCode, 0);
+              expect(audioProbe.stdout.toString().trim(), isEmpty,
+                  reason: 'Silent video must not contain an audio stream');
+            }
+            if (entry.key == 'youtube' || entry.key == 'shorts' || entry.key == 'youtube_music') {
+              if (service.useOriginalYouTubeTitle) {
+                expect(filePath.split(Platform.pathSeparator).last,
+                    isNot(startsWith('KaraDelik_YouTube_')));
+              }
+            }
             final hardwareAv1 =
                 Platform.environment['KARADELIK_HW_DECODE'] == '1' &&
                     probe.stdout.toString().trim() == 'av1';
@@ -86,8 +106,7 @@ void main() {
               if (hardwareAv1) ...['-hwaccel', 'cuda', '-c:v', 'av1_cuvid'],
               '-i',
               filePath,
-              '-map',
-              '0:a:0',
+              if (!quality.isVideoOnly) ...['-map', '0:a:0'],
               if (!quality.isAudioOnly) ...['-map', '0:v:0'],
               '-f',
               'null',

@@ -109,9 +109,17 @@ class YtDlpExtraService {
     return <String>[];
   }
 
+  /// Keep separate video and audio streams for YouTube's highest resolutions.
+  static String videoFormatForUrl(String url) => getPlatformName(url) == 'YouTube'
+      ? 'bestvideo+bestaudio/best'
+      : 'bv*+ba/bestvideo+bestaudio/best';
+
+  static String formatForQuality(String url, DownloadQuality quality) =>
+      quality.isVideoOnly ? 'bv*/best' : videoFormatForUrl(url);
+
   /// Desteklenen 5 platform için Regex deseni
   static final RegExp supportedRegex = RegExp(
-    r'(https?:\/\/(?:[a-zA-Z0-9\-]+\.)?(?:(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/|embed\/|v\/|live\/)[a-zA-Z0-9_\-]+)|(?:youtu\.be\/[a-zA-Z0-9_\-]+)|(?:instagram\.com\/(?:(?:[a-zA-Z0-9_.]+\/)?(?:p|reel|reels|tv|stories|share(?:\/reel|\/p)?)\/[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)?))|(?:(?:[a-zA-Z0-9\-]+\.)?(?:cdninstagram\.com|fbcdn\.net)\/[^\s]+)|(?:(?:vm\.|vt\.|www\.)?tiktok\.com\/(?:@?[a-zA-Z0-9_.]+\/video\/\d+|[a-zA-Z0-9_\-]+))|(?:(?:twitter\.com|x\.com)\/(?:[a-zA-Z0-9_]+\/)?status\/\d+)|(?:(?:facebook\.com|fb\.watch|fb\.com)\/[a-zA-Z0-9_\-\.\/?=&%+]+)))',
+    r'(https?:\/\/(?:[a-zA-Z0-9\-]+\.)?(?:(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/|embed\/|v\/|live\/)[a-zA-Z0-9_\-]+)|(?:youtu\.be\/[a-zA-Z0-9_\-]+)|(?:instagram\.com\/(?:(?:[a-zA-Z0-9_.]+\/)?(?:p|reel|reels|tv|stories|share(?:\/reel|\/p)?)\/[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)?))|(?:(?:[a-zA-Z0-9\-]+\.)?(?:cdninstagram\.com|fbcdn\.net)\/[^\s]+)|(?:(?:vm\.|vt\.|www\.)?tiktok\.com\/(?:@?[a-zA-Z0-9_.]+\/(?:video|photo)\/\d+|[a-zA-Z0-9_\-]+))|(?:(?:twitter\.com|x\.com)\/(?:[a-zA-Z0-9_]+\/)?status\/\d+)|(?:(?:facebook\.com|fb\.watch|fb\.com)\/[a-zA-Z0-9_\-\.\/?=&%+]+)))',
     caseSensitive: false,
   );
 
@@ -315,7 +323,7 @@ class YtDlpExtraService {
         if (raw.isNotEmpty && raw.startsWith('{')) {
           final data = jsonDecode(raw);
           if (data is Map<String, dynamic>) {
-            final title = data['title']?.toString() ?? 'Media';
+            final title = data['title']?.toString() ?? '';
             final uploader =
                 data['uploader']?.toString() ?? data['channel']?.toString();
             final extractor = data['extractor']?.toString() ??
@@ -572,7 +580,7 @@ class YtDlpExtraService {
       } else {
         args.addAll([
           '-f',
-          'bv*+ba/bestvideo+bestaudio/best',
+          formatForQuality(targetUrl, quality),
           '--merge-output-format',
           'mp4',
           '--remux-video',
@@ -643,8 +651,7 @@ class YtDlpExtraService {
           return;
         }
 
-        if (trimmed.startsWith('[ExtractAudio]') ||
-            trimmed.contains('Destination:')) {
+        if (quality.isAudioOnly && trimmed.startsWith('[ExtractAudio]')) {
           onProgress(
               0.96, 'Stüdyo kalitesinde MP3 formatına dönüştürülüyor...');
           return;
@@ -695,6 +702,34 @@ class YtDlpExtraService {
       final resultFile = File(path_lib.join(staging.path, 'media.$ext'));
       if (!await resultFile.exists() || await resultFile.length() <= 1024) {
         throw Exception('İndirilen dosya doğrulanamadı veya boş (0 bayt).');
+      }
+
+      if (quality.isVideoOnly) {
+        onProgress(0.96, 'Video ses olmadan hazırlanıyor...');
+        final silentPath = path_lib.join(staging.path, 'silent.mp4');
+        final strip = await Process.start(ffmpeg, [
+          '-nostdin', '-v', 'error', '-y', '-i', resultFile.path,
+          '-map', '0:v:0', '-c:v', 'copy', '-an', silentPath,
+        ]);
+        _activeProcesses.add(strip);
+        final out = strip.stdout.drain<void>();
+        final errors = strip.stderr.transform(utf8.decoder).join();
+        try {
+          final code = await strip.exitCode.timeout(const Duration(minutes: 5));
+          await out;
+          final errorText = await errors;
+          if (code != 0) throw Exception('Sessiz video oluşturulamadı: $errorText');
+        } on TimeoutException {
+          await _stopProcess(strip);
+          await out;
+          await errors;
+          rethrow;
+        } finally {
+          _activeProcesses.remove(strip);
+        }
+        if (_cancelled) throw Exception('İndirme iptal edildi.');
+        await resultFile.delete();
+        await File(silentPath).rename(resultFile.path);
       }
 
       // Verify the requested streams before exposing a completed file.

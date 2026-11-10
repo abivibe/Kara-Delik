@@ -1,8 +1,8 @@
 ; Inno Setup Script for KaraDelik Downloader
-; Created for KaraDelik 1.0.3
+; Created for KaraDelik 1.0.4
 
 #define MyAppName "KaraDelik"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "KaraDelik"
 #define MyAppExeName "karadelik.exe"
 
@@ -33,13 +33,13 @@ CloseApplicationsFilter=*.exe
 RestartApplications=no
 
 ; Meşru yayıncı ve sürüm künyesi (Antivirüs sezgisel motorlarının güvenini sağlar)
-VersionInfoVersion=1.0.3.0
+VersionInfoVersion=1.0.4.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Video ve Medya İndirici Kurulumu
 VersionInfoTextVersion={#MyAppVersion}
 VersionInfoCopyright=Copyright © 2026 {#MyAppPublisher}. Tüm hakları saklıdır.
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.0.3.0
+VersionInfoProductVersion=1.0.4.0
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"

@@ -14,10 +14,13 @@ import 'download_history_service.dart';
 import 'localization_service.dart';
 import 'mp4_fixer.dart';
 import 'ytdlp_extra_service.dart';
+import 'youtube_title_resolver.dart';
+import 'tiktok_slideshow.dart';
 
 enum DownloadQuality {
   mp4,
   mp3,
+  silentVideo,
 }
 
 extension DownloadQualityExtension on DownloadQuality {
@@ -27,12 +30,16 @@ extension DownloadQualityExtension on DownloadQuality {
         return AppLocalizations.tr('style_mp4');
       case DownloadQuality.mp3:
         return AppLocalizations.tr('style_mp3');
+      case DownloadQuality.silentVideo:
+        return AppLocalizations.tr('style_silent_video');
     }
   }
 
   String get cobaltQualityValue => 'max';
 
   bool get isAudioOnly => this == DownloadQuality.mp3;
+  bool get isVideoOnly => this == DownloadQuality.silentVideo;
+  String get fileExtension => isAudioOnly ? 'mp3' : 'mp4';
 }
 
 typedef DownloadProgressCallback = void Function(
@@ -136,6 +143,7 @@ class DownloadService {
 
 
   CancelToken? _cancelToken;
+  Process? _slideshowProcess;
   bool _isDownloading = false;
   bool get isDownloading => _isDownloading;
   Duration? lastResolvedVideoDuration;
@@ -168,10 +176,24 @@ class DownloadService {
 
   String? customInstanceUrl;
   String? customDownloadPath;
+  bool useOriginalYouTubeTitle = false;
+  String? _youtubeBaseName;
+
+  static String safeVideoTitle(String title) {
+    var result = title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1f]'), '_').trim();
+    result = result.replaceAll(RegExp(r'[. ]+$'), '');
+    if (result.isEmpty) result = 'YouTube';
+    if (RegExp(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)', caseSensitive: false).hasMatch(result)) {
+      result = '_$result';
+    }
+    if (result.length > 150) result = result.substring(0, 150).replaceAll(RegExp(r'[. ]+$'), '');
+    return result;
+  }
+
 
   /// Desteklenen platformlar (YouTube, Instagram, TikTok, X/Twitter, Facebook) için kapsamlı Regex deseni
   static final RegExp _supportedUrlRegex = RegExp(
-    r'(https?:\/\/(?:[a-zA-Z0-9\-]+\.)?(?:(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/|embed\/|v\/|live\/)[a-zA-Z0-9_\-]+)|(?:youtu\.be\/[a-zA-Z0-9_\-]+)|(?:instagram\.com\/(?:(?:[a-zA-Z0-9_.]+\/)?(?:p|reel|reels|tv|stories|share(?:\/reel|\/p)?)\/[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)?))|(?:(?:[a-zA-Z0-9\-]+\.)?(?:cdninstagram\.com|fbcdn\.net)\/[^\s]+)|(?:(?:vm\.|vt\.|www\.)?tiktok\.com\/(?:@?[a-zA-Z0-9_.]+\/video\/\d+|[a-zA-Z0-9_\-]+))|(?:(?:twitter\.com|x\.com)\/(?:[a-zA-Z0-9_]+\/)?status\/\d+)|(?:(?:facebook\.com|fb\.watch|fb\.com)\/[a-zA-Z0-9_\-\.\/?=&%+]+)))',
+    r'(https?:\/\/(?:[a-zA-Z0-9\-]+\.)?(?:(?:youtube\.com\/(?:watch\?(?:[^\s]*&)?v=|shorts\/|embed\/|v\/|live\/)[a-zA-Z0-9_\-]+)|(?:youtu\.be\/[a-zA-Z0-9_\-]+)|(?:instagram\.com\/(?:(?:[a-zA-Z0-9_.]+\/)?(?:p|reel|reels|tv|stories|share(?:\/reel|\/p)?)\/[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)?))|(?:(?:[a-zA-Z0-9\-]+\.)?(?:cdninstagram\.com|fbcdn\.net)\/[^\s]+)|(?:(?:vm\.|vt\.|www\.)?tiktok\.com\/(?:@?[a-zA-Z0-9_.]+\/(?:video|photo)\/\d+|[a-zA-Z0-9_\-]+))|(?:(?:twitter\.com|x\.com)\/(?:[a-zA-Z0-9_]+\/)?status\/\d+)|(?:(?:facebook\.com|fb\.watch|fb\.com)\/[a-zA-Z0-9_\-\.\/?=&%+]+)))',
     caseSensitive: false,
   );
 
@@ -1538,7 +1560,7 @@ class DownloadService {
     required String timeStamp,
     required DownloadProgressCallback onProgress,
   }) async {
-    final fileName = 'KaraDelik_YouTube_$timeStamp.mp3';
+    final fileName = '${_youtubeBaseName ?? 'KaraDelik_YouTube_$timeStamp'}.mp3';
     final savePath = Platform.isWindows
         ? '$targetDirectory\\$fileName'
         : '$targetDirectory/$fileName';
@@ -1945,7 +1967,7 @@ class DownloadService {
         return null;
       }
 
-      final fileName = 'KaraDelik_YouTube_$timeStamp.mp4';
+      final fileName = '${_youtubeBaseName ?? 'KaraDelik_YouTube_$timeStamp'}.mp4';
       final savePath = Platform.isWindows
           ? '$targetDirectory\\$fileName'
           : '$targetDirectory/$fileName';
@@ -1995,7 +2017,7 @@ class DownloadService {
     // 0. KATMAN (Windows): yt-dlp & FFmpeg Yüksek Kalite Video Motoru (4K / 1080p HQ)
     if (Platform.isWindows) {
       try {
-        final fileName = 'KaraDelik_YouTube_$timeStamp.mp4';
+        final fileName = '${_youtubeBaseName ?? 'KaraDelik_YouTube_$timeStamp'}.mp4';
         final savePath = '$targetDirectory\\$fileName';
         final resultPath = await YtDlpExtraService().downloadWithProgress(
           targetUrl: targetUrl,
@@ -2031,7 +2053,7 @@ class DownloadService {
         quality: DownloadQuality.mp4,
       );
       if (cobaltUrl != null && cobaltUrl.isNotEmpty) {
-        final fileName = 'KaraDelik_YouTube_$timeStamp.mp4';
+        final fileName = '${_youtubeBaseName ?? 'KaraDelik_YouTube_$timeStamp'}.mp4';
         final savePath = Platform.isWindows
             ? '$targetDirectory\\$fileName'
             : '$targetDirectory/$fileName';
@@ -2243,7 +2265,7 @@ class DownloadService {
       await Future.wait([videoFuture, audioFuture]);
 
       // 5. Nihai çıktı yolu
-      final fileName = 'KaraDelik_YouTube_$timeStamp.mp4';
+      final fileName = '${_youtubeBaseName ?? 'KaraDelik_YouTube_$timeStamp'}.mp4';
       final savePath = Platform.isWindows
           ? '$targetDirectory\\$fileName'
           : '$targetDirectory/$fileName';
@@ -2629,6 +2651,91 @@ class DownloadService {
     final isYouTube = targetUrl.toLowerCase().contains('youtube.com') ||
         targetUrl.toLowerCase().contains('youtu.be');
 
+    if (isYouTube && useOriginalYouTubeTitle) {
+      onProgress(0.06, 'YouTube video adı alınıyor...');
+      final title = await resolveYouTubeTitle([
+        () async {
+          final response = await _dio.get(
+            'https://www.youtube.com/oembed',
+            queryParameters: {'url': targetUrl, 'format': 'json'},
+            options: Options(receiveTimeout: const Duration(seconds: 8),
+                sendTimeout: const Duration(seconds: 8)),
+            cancelToken: _cancelToken,
+          );
+          final data = response.data;
+          return data is Map ? data['title']?.toString() : null;
+        },
+        () async {
+          final info = await YtDlpExtraService().resolveMediaInfo(targetUrl);
+          return info?.title;
+        },
+        () async {
+          final youtube = YoutubeExplode();
+          try {
+            final video = await youtube.videos.get(targetUrl).timeout(const Duration(seconds: 12));
+            return video.title;
+          } finally {
+            youtube.close();
+          }
+        },
+      ]);
+      if (_cancelToken?.isCancelled == true) throw Exception('İndirme iptal edildi.');
+      if (title == null) {
+        throw Exception('YouTube video adı alınamadı. Lütfen tekrar deneyin veya özgün ad ayarını kapatın.');
+      }
+      final base = safeVideoTitle(title);
+      var candidate = base;
+      var suffix = 2;
+      while (await File(path_lib.join(targetDirectory, '$candidate.${quality.fileExtension}')).exists()) {
+        candidate = '$base (${suffix++})';
+      }
+      _youtubeBaseName = candidate;
+    }
+
+    if (detectPlatformName(targetUrl) == 'TikTok' && !quality.isAudioOnly) {
+      onProgress(0.08, 'TikTok gönderisi inceleniyor...');
+      TikTokSlideshow? slideshow;
+      try {
+        final response = await _dio.post('https://www.tikwm.com/api/',
+            data: {'url': targetUrl, 'hd': 1},
+            options: Options(contentType: Headers.formUrlEncodedContentType,
+                connectTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 15)),
+            cancelToken: _cancelToken);
+        final data = response.data is String ? jsonDecode(response.data) : response.data;
+        if (data is Map && data['data'] is Map) {
+          slideshow = TikTokSlideshow.fromApi(data['data'] as Map);
+        }
+      } catch (_) {
+        if (_cancelToken?.isCancelled == true || targetUrl.contains('/photo/')) rethrow;
+      }
+      if (slideshow != null) {
+        final savePath = path_lib.join(targetDirectory, 'KaraDelik_TikTok_$timeStamp.mp4');
+        await _renderTikTokSlideshow(slideshow, savePath, quality.isVideoOnly, onProgress);
+        try { await DownloadHistoryService().addItem(savePath, url: targetUrl); } catch (_) {}
+        onProgress(1.0, 'Tamamlandı!');
+        return savePath;
+      }
+      if (targetUrl.contains('/photo/')) {
+        throw Exception('TikTok fotoğrafları alınamadı. Lütfen tekrar deneyin.');
+      }
+    }
+
+    // Silent downloads use one path for every platform and never fall back to
+    // an unstripped media stream if extraction or conversion fails.
+    if (quality.isVideoOnly) {
+      final platform = detectPlatformName(targetUrl);
+      final name = _youtubeBaseName ?? 'KaraDelik_${platform}_$timeStamp';
+      final result = await YtDlpExtraService().downloadWithProgress(
+        targetUrl: targetUrl, quality: quality,
+        destinationPath: path_lib.join(targetDirectory, '$name.mp4'),
+        onProgress: onProgress,
+      );
+      if (_cancelToken?.isCancelled == true) throw Exception('İndirme iptal edildi.');
+      try { await DownloadHistoryService().addItem(result, url: targetUrl); } catch (_) {}
+      return result;
+    }
+
     // Keep platform extraction, signed request headers and conversion together.
     if (Platform.isWindows &&
         detectPlatformName(targetUrl) == 'Instagram' &&
@@ -2729,7 +2836,7 @@ class DownloadService {
     onProgress(0.25, 'Dosya yolu hazırlanıyor...');
     final extension = quality.isAudioOnly ? 'mp3' : 'mp4';
     final platform = detectPlatformName(targetUrl);
-    final fileName = 'KaraDelik_${platform}_$timeStamp.$extension';
+    final fileName = isYouTube && _youtubeBaseName != null ? '$_youtubeBaseName.$extension' : 'KaraDelik_${platform}_$timeStamp.$extension';
     final savePath = Platform.isWindows
         ? '$targetDirectory\\$fileName'
         : '$targetDirectory/$fileName';
@@ -2907,7 +3014,7 @@ class DownloadService {
       try {
         final ext = quality.isAudioOnly ? 'mp3' : 'mp4';
         final platform = detectPlatformName(targetUrl);
-        final fileName = 'KaraDelik_${platform}_$timeStamp.$ext';
+        final fileName = isYouTube && _youtubeBaseName != null ? '$_youtubeBaseName.$ext' : 'KaraDelik_${platform}_$timeStamp.$ext';
         final fallbackPath = Platform.isWindows
             ? '$targetDirectory\\$fileName'
             : '$targetDirectory/$fileName';
@@ -2945,13 +3052,71 @@ class DownloadService {
       rethrow;
     }
   } finally {
+    _youtubeBaseName = null;
     _isDownloading = false;
   }
 }
 
+  Future<void> _renderTikTokSlideshow(TikTokSlideshow post, String output,
+      bool silent, DownloadProgressCallback onProgress) async {
+    final ffmpeg = await _findFfmpegExecutable();
+    if (ffmpeg == null) throw Exception('Fotoğraf videosu için FFmpeg bulunamadı.');
+    final temp = await (await getTemporaryDirectory()).createTemp('karadelik_tiktok_');
+    try {
+      final images = <String>[];
+      for (var i = 0; i < post.images.length; i++) {
+        onProgress(0.1 + 0.35 * i / post.images.length, 'Fotoğraflar indiriliyor (${i + 1}/${post.images.length})...');
+        final path = path_lib.join(temp.path, 'image_$i');
+        await _dio.download(post.images[i], path, cancelToken: _cancelToken);
+        images.add(path);
+      }
+      String? audio;
+      double duration = images.length * 5.0;
+      if (post.audioUrl != null && !silent) {
+        audio = path_lib.join(temp.path, 'audio');
+        await _dio.download(post.audioUrl!, audio, cancelToken: _cancelToken);
+        final probe = path_lib.join(path_lib.dirname(ffmpeg), Platform.isWindows ? 'ffprobe.exe' : 'ffprobe');
+        final result = await Process.run(probe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio]);
+        final seconds = double.tryParse(result.stdout.toString().trim());
+        if (result.exitCode != 0 || seconds == null || seconds <= 0) {
+          throw Exception('TikTok ses süresi okunamadı.');
+        }
+        duration = seconds;
+      }
+      final perImage = duration / images.length;
+      final args = <String>['-y', '-hide_banner', '-loglevel', 'error'];
+      for (final image in images) {
+        args.addAll(['-loop', '1', '-framerate', '25', '-t', perImage.toStringAsFixed(4), '-i', image]);
+      }
+      if (audio != null) args.addAll(['-i', audio]);
+      final filters = <String>[];
+      for (var i = 0; i < images.length; i++) {
+        filters.add('[$i:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v$i]');
+      }
+      filters.add('${List.generate(images.length, (i) => '[v$i]').join()}concat=n=${images.length}:v=1:a=0[outv]');
+      args.addAll(['-filter_complex', filters.join(';'), '-map', '[outv]', if (audio != null) ...['-map', '${images.length}:a:0', '-c:a', 'aac'], '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-t', duration.toStringAsFixed(4), '-movflags', '+faststart', output]);
+      onProgress(0.65, 'Fotoğraflar videoya dönüştürülüyor...');
+      _slideshowProcess = await Process.start(ffmpeg, args);
+      final stderr = _slideshowProcess!.stderr.transform(utf8.decoder).join();
+      final stdout = _slideshowProcess!.stdout.drain<void>();
+      final code = await _slideshowProcess!.exitCode;
+      final error = await stderr;
+      await stdout;
+      _slideshowProcess = null;
+      if (code != 0 || _cancelToken?.isCancelled == true) throw Exception('Fotoğraf videosu oluşturulamadı: $error');
+    } catch (_) {
+      final file = File(output);
+      if (await file.exists()) await file.delete();
+      rethrow;
+    } finally {
+      await temp.delete(recursive: true);
+    }
+  }
+
   /// Aktif indirmeyi iptal eder
   void cancelDownload() {
     _cancelToken?.cancel('Kullanıcı tarafından iptal edildi.');
+    _slideshowProcess?.kill();
     YtDlpExtraService().cancel();
   }
 }

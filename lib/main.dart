@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -7,7 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:tray_manager/legacy.dart';
 
+import 'services/clipboard_prompt_controller.dart';
 import 'services/download_history_service.dart';
 import 'services/download_service.dart';
 import 'services/localization_service.dart';
@@ -164,7 +168,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with WidgetsBindingObserver, TickerProviderStateMixin, WindowListener {
+    with WidgetsBindingObserver, TickerProviderStateMixin, WindowListener, TrayListener {
   final DownloadService _downloadService = DownloadService();
   final DownloadHistoryService _historyService = DownloadHistoryService();
   final TextEditingController _urlController = TextEditingController();
@@ -179,6 +183,8 @@ class _HomeScreenState extends State<HomeScreen>
   String _downloadSpeed = '';
   String _downloadEta = '';
   bool _autoClipboardCheck = true;
+  bool _trayEnabled = true;
+  bool _trayReady = false;
 
   String? _notificationBannerFile;
   Timer? _notificationBannerTimer;
@@ -209,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _notificationBannerFile = filePath;
     });
-    _notificationBannerTimer = Timer(const Duration(seconds: 8), () {
+    _notificationBannerTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
           _notificationBannerFile = null;
@@ -228,62 +234,45 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String? _lastPromptedUrl;
-  bool _isPrompting = false;
+  late final ClipboardPromptController _promptController;
 
-  /// WINDOWS İÇİN ÖZEL PANO ONAY BİLDİRİMİ (UYGULAMA KÜÇÜLTÜLMÜŞ/ARKA PLANDAYKEN SAĞ ALTA ÇIKAN FADE BALONCUK)
-  Future<void> _showClipboardPromptNotification(String url) async {
-    if (!_isWindows || _isPrompting) return;
-    _isPrompting = true;
-    try {
-      final exeDir = path_lib.dirname(Platform.resolvedExecutable);
-      String notifierPath = path_lib.join(exeDir, 'KaraDelikNotifier.exe');
-      if (!File(notifierPath).existsSync()) {
-        notifierPath = path_lib.join(Directory.current.path, 'windows', 'bin', 'KaraDelikNotifier.exe');
-      }
-      if (File(notifierPath).existsSync()) {
-        final process = await Process.start(
-          notifierPath,
-          [
-            '/prompt',
-            url,
-            AppLocalizations.tr('clipboard_prompt_title'),
-            AppLocalizations.tr('clipboard_prompt_desc'),
-            AppLocalizations.tr('clipboard_prompt_btn'),
-            AppLocalizations.tr('clipboard_prompt_cancel'),
-          ],
-        );
-        final exitCode = await process.exitCode;
-        if ((exitCode == 101 || exitCode == 102 || exitCode == 100) && mounted) {
-          if (exitCode == 102) {
-            // Kullanıcı "Uygulamada Göster" seçti: KaraDelik penceresini ekrana getir ve bekle
-            try {
-              await windowManager.show();
-              await windowManager.restore();
-              await windowManager.focus();
-            } catch (_) {}
-            setState(() {
-              _detectedUrl = url;
-              _urlController.text = url;
-              _state = DownloadState.readyToDownload;
-              _statusText = AppLocalizations.tr('status_ready');
-            });
-            return;
-          }
-          // exitCode == 101: Kullanıcı bildirimdeki "İndir" butonuna tıkladı
-          if (exitCode == 101) {
-            if (_state == DownloadState.downloading) return;
-            setState(() {
-              _detectedUrl = url;
-              _urlController.text = url;
-            });
-            await _handleDownload(directUrl: url);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Windows pano bildirim hatası: $e');
-    } finally {
-      _isPrompting = false;
+  Future<ClipboardPromptHandle> _startClipboardPrompt(String url) async {
+    final exeDir = path_lib.dirname(Platform.resolvedExecutable);
+    var notifierPath = path_lib.join(exeDir, 'KaraDelikNotifier.exe');
+    if (!File(notifierPath).existsSync()) {
+      notifierPath = path_lib.join(Directory.current.path, 'windows', 'bin', 'KaraDelikNotifier.exe');
+    }
+    final process = await Process.start(notifierPath, [
+      '/prompt', url,
+      AppLocalizations.tr('clipboard_prompt_title'),
+      AppLocalizations.tr('clipboard_prompt_desc'),
+      AppLocalizations.tr('clipboard_prompt_btn'),
+      AppLocalizations.tr('clipboard_prompt_cancel'),
+    ]);
+    return ProcessClipboardPrompt(process);
+  }
+
+  Future<void> _onClipboardPromptResponse(String url, int exitCode) async {
+    if (!mounted || (exitCode != 101 && exitCode != 102)) return;
+    if (exitCode == 102) {
+      try {
+        await windowManager.show();
+        await windowManager.restore();
+        await windowManager.focus();
+      } catch (_) {}
+      if (!mounted || _lastPromptedUrl != url) return;
+      setState(() {
+        _detectedUrl = url;
+        _urlController.text = url;
+        _state = DownloadState.readyToDownload;
+        _statusText = AppLocalizations.tr('status_ready');
+      });
+    } else if (_state != DownloadState.downloading && _lastPromptedUrl == url) {
+      setState(() {
+        _detectedUrl = url;
+        _urlController.text = url;
+      });
+      await _handleDownload(directUrl: url);
     }
   }
 
@@ -329,14 +318,70 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _setupTray() async {
+    try {
+      await trayManager.setIcon('assets/app_icon.png');
+      await trayManager.setToolTip('KaraDelik');
+      await trayManager.setContextMenu(Menu(items: [
+        MenuItem(key: 'show', label: AppLocalizations.tr('tray_show')),
+        MenuItem(key: 'exit', label: AppLocalizations.tr('tray_exit')),
+      ]));
+      _trayReady = true;
+    } catch (e) {
+      _trayReady = false;
+      debugPrint('System tray error: $e');
+    }
+  }
+
+  Future<void> _minimizeToTray() async {
+    if (!_trayEnabled) {
+      _showSnackbar(AppLocalizations.tr('tray_disabled'));
+      return;
+    }
+    if (!_trayReady) await _setupTray();
+    if (!mounted || !_trayEnabled) return;
+    if (_trayReady) {
+      await windowManager.hide();
+    } else {
+      _showSnackbar(AppLocalizations.tr('tray_unavailable'));
+    }
+  }
+
+  Future<void> _showFromTray() async {
+    await windowManager.show();
+    await windowManager.restore();
+    await windowManager.focus();
+  }
+
+  @override
+  void onTrayIconMouseDown() => _showFromTray();
+
+  @override
+  void onTrayIconRightMouseDown() => trayManager.popUpContextMenu();
+
+  @override
+  void onTrayMenuItemClick(MenuItem item) {
+    if (item.key == 'show') _showFromTray();
+    if (item.key == 'exit') _handleAppExit();
+  }
+
   @override
   void onWindowClose() {
-    _handleAppExit();
+    if (_trayEnabled && _trayReady) {
+      windowManager.hide();
+    } else {
+      _handleAppExit();
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    _promptController = ClipboardPromptController(
+      start: _startClipboardPrompt,
+      onResponse: _onClipboardPromptResponse,
+      onError: (error) => debugPrint('Windows pano bildirim hatası: $error'),
+    );
     WidgetsBinding.instance.addObserver(this);
 
     _statusText = AppLocalizations.tr('status_checking');
@@ -355,6 +400,7 @@ class _HomeScreenState extends State<HomeScreen>
     // 2. Windows Kapanış Yakalama
     if (_isWindows) {
       windowManager.addListener(this);
+      trayManager.addListener(this);
       windowManager.setPreventClose(true);
     }
 
@@ -427,7 +473,9 @@ class _HomeScreenState extends State<HomeScreen>
       _historyService.loadHistory();
     }
 
-    _loadConfig();
+    _loadConfig().then((_) {
+      if (mounted && _isWindows && _trayEnabled) _setupTray();
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_autoClipboardCheck) {
@@ -462,6 +510,8 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     if (_isWindows) {
       windowManager.removeListener(this);
+      trayManager.removeListener(this);
+      trayManager.destroy();
     }
     _windowFadeController.dispose();
     _rotatingLabelController.dispose();
@@ -470,6 +520,7 @@ class _HomeScreenState extends State<HomeScreen>
     _pulseController.dispose();
     _clipboardPollingTimer?.cancel();
     _notificationBannerTimer?.cancel();
+    _promptController.dispose();
     _urlController.dispose();
     _updateCheckTimer?.cancel();
     super.dispose();
@@ -515,6 +566,12 @@ class _HomeScreenState extends State<HomeScreen>
             _downloadService.customDownloadPath =
                 data['customDownloadPath'] as String;
           }
+          if (data['trayVersion'] == '1.0.4' && data['trayEnabled'] is bool) {
+            _trayEnabled = data['trayEnabled'] as bool;
+          }
+          if (data['useOriginalYouTubeTitle'] is bool) {
+            _downloadService.useOriginalYouTubeTitle = data['useOriginalYouTubeTitle'] as bool;
+          }
           if (data['autoClipboardCheck'] != null) {
             _autoClipboardCheck = data['autoClipboardCheck'] as bool;
           }
@@ -533,6 +590,9 @@ class _HomeScreenState extends State<HomeScreen>
         'themeMode': appThemeModeNotifier.value == ThemeMode.light ? 'light' : 'dark',
         'customDownloadPath': _downloadService.customDownloadPath ?? '',
         'autoClipboardCheck': _autoClipboardCheck,
+        'useOriginalYouTubeTitle': _downloadService.useOriginalYouTubeTitle,
+        'trayEnabled': _trayEnabled,
+        'trayVersion': '1.0.4',
       };
       await configFile.writeAsString(jsonEncode(data));
     } catch (_) {}
@@ -567,8 +627,8 @@ class _HomeScreenState extends State<HomeScreen>
         _lastPromptedUrl = url;
 
         // Kopyalanan bağlantı için gecikmesiz derhal Windows bildirimini tetikle
-        if (_isWindows && !_isPrompting) {
-          _showClipboardPromptNotification(url);
+        if (_isWindows) {
+          _promptController.show(url);
         }
 
         if (_detectedUrl != url) {
@@ -677,6 +737,7 @@ class _HomeScreenState extends State<HomeScreen>
         }
       });
 
+      _showNotificationBanner(savedPath);
       if (_isWindows) {
         bool isBackground = false;
         try {
@@ -691,13 +752,7 @@ class _HomeScreenState extends State<HomeScreen>
           // KESİNLİKLE pencereyi ekrana getirme / odaklama YAPMA!
           // Sadece Windows ekranının sağ üst köşesine özel custom bildirim baloncuğu çizdir.
           await _showWindowsScreenNotification(savedPath);
-        } else {
-          // Uygulama ekranda ve odakta ise custom bildirime gerek yok, sadece başarı diyaloğunu göster
-          _showSuccessDialog(savedPath);
         }
-      } else {
-        _showNotificationBanner(savedPath);
-        _showSuccessDialog(savedPath);
       }
     } catch (e) {
       if (!mounted) return;
@@ -743,108 +798,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showSuccessDialog(String filePath) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE0E0E0)),
-        ),
-        title: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-            const SizedBox(width: 8),
-            Text(
-              AppLocalizations.tr('download_complete'),
-              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              AppLocalizations.tr('media_saved'),
-              style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 13),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.black : const Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: isDark ? const Color(0xFF222222) : const Color(0xFFE0E0E0)),
-              ),
-              child: SelectableText(
-                filePath,
-                style: TextStyle(
-                  color: isDark ? const Color(0xFF64B5F6) : const Color(0xFF1976D2),
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          if (_isWindows) ...[
-            TextButton.icon(
-              icon: Icon(
-                Icons.play_arrow_rounded,
-                color: isDark ? const Color(0xFF64B5F6) : const Color(0xFF1976D2),
-              ),
-              label: Text(
-                AppLocalizations.tr('play'),
-                style: TextStyle(
-                  color: isDark ? const Color(0xFF64B5F6) : const Color(0xFF1976D2),
-                ),
-              ),
-              onPressed: () {
-                _historyService.playInDefaultPlayer(filePath);
-              },
-            ),
-            TextButton.icon(
-              icon: Icon(
-                Icons.folder_open_outlined,
-                color: isDark ? Colors.amberAccent : const Color(0xFFD97706),
-              ),
-              label: Text(
-                AppLocalizations.tr('show_in_folder'),
-                style: TextStyle(
-                  color: isDark ? Colors.amberAccent : const Color(0xFFD97706),
-                ),
-              ),
-              onPressed: () {
-                _historyService.openContainingFolder(filePath);
-              },
-            ),
-          ],
-
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? const Color(0xFF222222) : const Color(0xFF1976D2),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              setState(() {
-                _state = DownloadState.waitingForLink;
-                _detectedUrl = null;
-                _urlController.clear();
-                _statusText = AppLocalizations.tr('status_waiting');
-                _progress = 0.0;
-              });
-            },
-            child: Text(AppLocalizations.tr('new_download')),
-          ),
-        ],
-      ),
-    );
-  }
   void _showDownloadsDialog() async {
     await _historyService.loadHistory();
     if (!mounted) return;
@@ -1322,11 +1275,15 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     final initialLang = appLanguageNotifier.value;
     final initialPath = _downloadService.customDownloadPath ?? '';
     final initialAutoClipboard = _autoClipboardCheck;
+    final initialTray = _trayEnabled;
+    final initialYouTubeTitle = _downloadService.useOriginalYouTubeTitle;
 
     var tempTheme = initialTheme;
     var tempLang = initialLang;
     var tempPath = initialPath;
     var tempAutoClipboard = initialAutoClipboard;
+    var tempTray = initialTray;
+    var tempYouTubeTitle = initialYouTubeTitle;
 
     showDialog(
       context: context,
@@ -1337,7 +1294,9 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
           final hasChanges = tempTheme != initialTheme ||
               tempLang != initialLang ||
               tempPath != initialPath ||
-              tempAutoClipboard != initialAutoClipboard;
+              tempAutoClipboard != initialAutoClipboard ||
+              tempTray != initialTray ||
+              tempYouTubeTitle != initialYouTubeTitle;
 
           return PopScope(
             canPop: !hasChanges,
@@ -1638,6 +1597,24 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                           ],
                         ),
                       ),
+                      if (_isWindows) ...[
+                        const SizedBox(height: 14),
+                        SwitchListTile(
+                          title: Text(AppLocalizations.tr('tray_title'), style: const TextStyle(fontSize: 13)),
+                          subtitle: Text(AppLocalizations.tr('tray_desc'), style: const TextStyle(fontSize: 11)),
+                          value: tempTray,
+                          activeThumbColor: const Color(0xFF64B5F6),
+                          onChanged: (value) => setDialogState(() => tempTray = value),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      SwitchListTile(
+                        title: Text(AppLocalizations.tr('youtube_title_option'), style: const TextStyle(fontSize: 13)),
+                        subtitle: Text(AppLocalizations.tr('youtube_title_desc'), style: const TextStyle(fontSize: 11)),
+                        value: tempYouTubeTitle,
+                        activeThumbColor: const Color(0xFF64B5F6),
+                        onChanged: (value) => setDialogState(() => tempYouTubeTitle = value),
+                      ),
                       // 4. OTOMATİK PANO DENETLEME
                       const SizedBox(height: 14),
                       Container(
@@ -1714,6 +1691,16 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     appLanguageNotifier.value = tempLang;
                     _downloadService.customDownloadPath = tempPath.isNotEmpty ? tempPath : null;
                     _autoClipboardCheck = tempAutoClipboard;
+                    _trayEnabled = tempTray;
+                    _downloadService.useOriginalYouTubeTitle = tempYouTubeTitle;
+                    if (_isWindows) {
+                      if (_trayEnabled) {
+                        _setupTray();
+                      } else {
+                        _trayReady = false;
+                        trayManager.destroy();
+                      }
+                    }
 
                     _saveConfig();
                     Navigator.pop(ctx);
@@ -1962,6 +1949,12 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             ),
           ),
           _WindowControlButton(
+            icon: Icons.move_to_inbox_outlined,
+            tooltip: AppLocalizations.tr('tray_minimize'),
+            isDark: isDark,
+            onTap: _minimizeToTray,
+          ),
+          _WindowControlButton(
             icon: Icons.remove,
             tooltip: 'Küçült',
             isDark: isDark,
@@ -1984,7 +1977,7 @@ if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             tooltip: 'Kapat',
             isDark: isDark,
             isClose: true,
-            onTap: _handleAppExit,
+            onTap: onWindowClose,
           ),
         ],
       ),
