@@ -93,14 +93,14 @@ Bazı indirme işlemlerinde medya bağlantısı TikWM, Cobalt, Invidious veya Sn
 
 ## 📦 Dosya Doğrulama | File Verification
 
-**v1.0.5:** YouTube and TikTok photo post MP3 downloads were verified. / YouTube ve TikTok fotoğraf gönderilerinden MP3 indirme doğrulandı. [Release notes / Sürüm notları](docs/releases/v1.0.5.md).
+**v1.0.5:** Link resolution was refreshed for YouTube, Instagram, TikTok and Facebook. / YouTube, Instagram, TikTok ve Facebook bağlantı çözümlemesi güncellendi. [Release notes / Sürüm notları](docs/releases/v1.0.5.md).
 
 | Kontrol / Check | Sonuç / Status | Detay / Details |
 | :--- | :--- | :--- |
 | **Dosya Adı / File Name** | `KaraDelik_Setup.exe` | Windows 64-bit Kurulum Paketi (Installer) |
-| **Dosya Boyutu / File Size** | `137,268,515 bytes` | Windows setup, LZMA2 compression |
-| **SHA-256 Doğrulama / Hash** | `2e250322a566aa8437e5b6f5626be92c3866b2f5d048cd269466a592c88fb32b` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
-| **İndirme Testi / Download Test** | `passed` | YouTube and TikTok photo post, MP3 |
+| **Dosya Boyutu / File Size** | `137,266,915 bytes` | Windows setup, LZMA2 compression |
+| **SHA-256 Doğrulama / Hash** | `e0ddf7c8b1f3cc12069887925a5d1f2da1356fe8c22280b157ceca2d612e277c` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **İndirme Testi / Download Test** | `passed` | Instagram silent MP4, TikTok MP4, Facebook MP3 |
 
 ---
 

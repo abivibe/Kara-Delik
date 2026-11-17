@@ -486,6 +486,7 @@ class YtDlpExtraService {
           'decompressing data',
           'timed out',
           'connection reset',
+          'invalid_session_id',
           'remote end closed',
           'http error 502',
           'http error 503',
@@ -550,6 +551,10 @@ class YtDlpExtraService {
         '20',
         '--no-colors',
         '--no-playlist',
+        if (const {'YouTube', 'Instagram', 'TikTok', 'Facebook'}
+            .contains(getPlatformName(normalizedUrl))) ...[
+          '--extractor-retries', '1',
+        ],
         '--ignore-config',
         '--geo-bypass',
         '--force-overwrites',

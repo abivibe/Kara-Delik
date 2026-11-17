@@ -109,6 +109,14 @@ class SpeedTracker {
   }
 }
 
+class _StreamAccessDenied implements Exception {
+  const _StreamAccessDenied(this.statusCode);
+  final int statusCode;
+
+  @override
+  String toString() => 'HTTP $statusCode';
+}
+
 class DownloadService {
   static final DownloadService _instance = DownloadService._internal();
   factory DownloadService() => _instance;
@@ -537,56 +545,51 @@ class DownloadService {
     return null;
   }
 
-  /// TikTok videosunu filigransız en yüksek HD (1080p) kalitede çözer (tüm orijinal ses ve konuşmaları içerir)
-  Future<String?> _resolveTikTokUrl(String targetUrl, DownloadQuality quality) async {
+  Future<Map?> _fetchTikTokData(String targetUrl) async {
+    final response = await _dio.post(
+      'https://www.tikwm.com/api/',
+      data: {'url': targetUrl, 'hd': 1},
+      options: Options(
+        contentType: Headers.formUrlEncodedContentType,
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 10),
+      ),
+      cancelToken: _cancelToken,
+    );
+    final data = response.data is String ? jsonDecode(response.data) : response.data;
+    return data is Map && data['data'] is Map ? data['data'] as Map : null;
+  }
+
+  Future<String?> _resolveTikTokUrl(
+    String targetUrl,
+    DownloadQuality quality, {
+    Future<Map?>? previousLookup,
+  }) async {
     try {
-      final response = await _dio.post(
-        'https://www.tikwm.com/api/',
-        data: {'url': targetUrl, 'hd': 1},
-        options: Options(
-          contentType: Headers.formUrlEncodedContentType,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
-        ),
-      );
+      final data = await (previousLookup ?? _fetchTikTokData(targetUrl));
+      if (data == null) return null;
+      final duration = data['duration'];
+      if (duration is num && duration.toInt() > 0) {
+        lastResolvedVideoDuration = Duration(seconds: duration.toInt());
+      }
 
-      if (response.statusCode == 200 && response.data != null) {
-        final data = response.data is String ? jsonDecode(response.data) : response.data;
-        if (data is Map && data['data'] != null) {
-          final videoData = data['data'];
-          if (videoData is Map) {
-            // MP4 süre başlık onarıcı için süreyi kaydet
-            if (videoData['duration'] is num) {
-              final durSec = (videoData['duration'] as num).toInt();
-              if (durSec > 0) {
-                lastResolvedVideoDuration = Duration(seconds: durSec);
-              }
-            }
-
-            // Video indirmelerinde en yüksek kaliteli filigransız 1080p HD akışı (hdplay) önceliklidir!
-            // MP3 indirmelerinde ise videodaki tüm konuşma ve orijinal sesleri eksiksiz içeren
-            // standart play akışı hız avantajıyla çekilip MP3'e dönüştürülür.
-            final photos = videoData['images'];
-            final candidates = [
-              if (quality.isAudioOnly && photos is List && photos.isNotEmpty)
-                videoData['music'],
-              if (!quality.isAudioOnly) videoData['hdplay'],
-              videoData['play'],
-              if (quality.isAudioOnly) videoData['hdplay'],
-              videoData['wmplay'],
-            ];
-            final directUrl = candidates.whereType<String>()
-                .where((url) => url.isNotEmpty).firstOrNull;
-            if (directUrl != null && directUrl.isNotEmpty) {
-              return directUrl.startsWith('http')
-                  ? directUrl
-                  : 'https://www.tikwm.com$directUrl';
-            }
-          }
-        }
+      final photos = data['images'];
+      final candidates = [
+        if (quality.isAudioOnly && photos is List && photos.isNotEmpty)
+          data['music'],
+        if (!quality.isAudioOnly) data['hdplay'],
+        data['play'],
+        if (quality.isAudioOnly) data['hdplay'],
+        data['wmplay'],
+      ];
+      for (final candidate in candidates.whereType<String>()) {
+        if (candidate.isEmpty) continue;
+        final uri = Uri.parse('https://www.tikwm.com/').resolve(candidate);
+        if (uri.scheme == 'https' || uri.scheme == 'http') return uri.toString();
       }
     } catch (e) {
-      debugPrint('TikTok çözümleme hatası: $e');
+      if (_cancelToken?.isCancelled == true) rethrow;
+      debugPrint('TikTok resolution failed: $e');
     }
     return null;
   }
@@ -952,6 +955,48 @@ class DownloadService {
     return null;
   }
 
+  Future<String?> _resolveInBatches(
+    List<String> endpoints,
+    Future<String?> Function(String endpoint, CancelToken token) resolve, {
+    int batchSize = 3,
+  }) async {
+    final downloadToken = _cancelToken;
+    for (var offset = 0; offset < endpoints.length; offset += batchSize) {
+      if (downloadToken?.isCancelled == true) throw downloadToken!.cancelError!;
+      final token = CancelToken();
+      final batch = endpoints.skip(offset).take(batchSize).toList();
+      final winner = Completer<String?>();
+      final cancellation = Completer<void>();
+      if (downloadToken != null) {
+        unawaited(Future.any([downloadToken.whenCancel, cancellation.future])
+            .then((_) {
+          if (downloadToken.isCancelled && !token.isCancelled) token.cancel();
+        }));
+      }
+      var pending = batch.length;
+      for (final endpoint in batch) {
+        unawaited(() async {
+          try {
+            final url = await resolve(endpoint, token);
+            if (url != null && !winner.isCompleted) winner.complete(url);
+          } catch (error) {
+            if (!token.isCancelled) debugPrint('Resolver failed: $error');
+          } finally {
+            if (--pending == 0 && !winner.isCompleted) winner.complete(null);
+          }
+        }());
+      }
+      final result = await winner.future.timeout(
+        const Duration(seconds: 8), onTimeout: () => null,
+      );
+      cancellation.complete();
+      token.cancel();
+      if (downloadToken?.isCancelled == true) throw downloadToken!.cancelError!;
+      if (result != null) return result;
+    }
+    return null;
+  }
+
   /// Cobalt API yedek sunucuları üzerinden akış bağlantısını çözer
   Future<String?> _resolveCobaltInstanceUrl({
     required String targetUrl,
@@ -980,12 +1025,13 @@ class DownloadService {
       payload['youtubeVideoCodec'] = 'h264';
     }
 
-    for (final endpoint in endpoints) {
+    Future<String?> tryEndpoint(String endpoint, CancelToken? token) async {
       try {
         final cleanEndpoint = endpoint.endsWith('/') ? endpoint : '$endpoint/';
         final response = await _dio.post(
           cleanEndpoint,
           data: payload,
+          cancelToken: token,
           options: Options(
             headers: {
               'Accept': 'application/json',
@@ -1020,6 +1066,7 @@ class DownloadService {
                 final fbResp = await _dio.post(
                   cleanEndpoint,
                   data: fallbackPayload,
+                  cancelToken: token,
                   options: Options(
                     headers: {
                       'Accept': 'application/json',
@@ -1047,6 +1094,7 @@ class DownloadService {
             final fbResp = await _dio.post(
               cleanEndpoint,
               data: fallbackPayload,
+                  cancelToken: token,
               options: Options(
                 headers: {
                   'Accept': 'application/json',
@@ -1067,10 +1115,25 @@ class DownloadService {
           } catch (_) {}
         }
       } catch (e) {
+        if (token?.isCancelled == true) return null;
         debugPrint('Cobalt endpoint denemesi başarısız ($endpoint): $e');
       }
+      return null;
     }
 
+    final platform = detectPlatformName(targetUrl);
+    if (const {'YouTube', 'Instagram', 'TikTok', 'Facebook'}.contains(platform)) {
+      if (customInstanceUrl?.trim().isNotEmpty == true) {
+        final custom = await _resolveInBatches([endpoints.removeAt(0)], tryEndpoint);
+        if (custom != null) return custom;
+      }
+      return _resolveInBatches(endpoints, tryEndpoint);
+    }
+    for (final endpoint in endpoints) {
+      final result = await tryEndpoint(endpoint, _cancelToken);
+      if (_cancelToken?.isCancelled == true) throw _cancelToken!.cancelError!;
+      if (result != null) return result;
+    }
     return null;
   }
 
@@ -1092,10 +1155,11 @@ class DownloadService {
     final videoId = _extractYouTubeVideoId(targetUrl);
     if (videoId == null) return null;
 
-    for (final inst in _invidiousInstances) {
+    return _resolveInBatches(_invidiousInstances, (inst, token) async {
       try {
         final res = await _dio.get(
           '$inst/api/v1/videos/$videoId',
+          cancelToken: token,
           options: Options(
             connectTimeout: const Duration(seconds: 5),
             receiveTimeout: const Duration(seconds: 8),
@@ -1135,10 +1199,11 @@ class DownloadService {
           }
         }
       } catch (e) {
+        if (token.isCancelled) return null;
         debugPrint('Invidious çözümleme hatası ($inst): $e');
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   /// Tüm platformlar için çok katmanlı akış çözümleyici
@@ -1146,19 +1211,12 @@ class DownloadService {
     required String targetUrl,
     required DownloadQuality quality,
     required DownloadProgressCallback onProgress,
+    Future<Map?>? tikTokLookup,
   }) async {
     final lowerUrl = targetUrl.toLowerCase();
 
     // 1. YouTube Çözümleme (Shorts dahil)
     if (lowerUrl.contains('youtube.com') || lowerUrl.contains('youtu.be')) {
-      // YouTube video süresini önceden al (MP4 süre başlıklarını onarmak için)
-      try {
-        final yt = YoutubeExplode();
-        final vInfo = await yt.videos.get(targetUrl).timeout(const Duration(seconds: 6));
-        lastResolvedVideoDuration = vInfo.duration;
-        yt.close();
-      } catch (_) {}
-
       if (quality.isAudioOnly) {
         onProgress(0.12, 'YouTube ses akışı alınıyor (Invidious / Cobalt)...');
         final invAudio = await _resolveInvidiousUrl(targetUrl, audioOnly: true);
@@ -1210,7 +1268,7 @@ class DownloadService {
     // 3. TikTok Çözümleme
     if (lowerUrl.contains('tiktok.com')) {
       onProgress(0.12, 'TikTok videosu çözümleniyor...');
-      final ttResult = await _resolveTikTokUrl(targetUrl, quality);
+      final ttResult = await _resolveTikTokUrl(targetUrl, quality, previousLookup: tikTokLookup);
       if (ttResult != null) return ttResult;
 
       onProgress(0.18, 'TikTok yedek sunucu deneniyor...');
@@ -1232,22 +1290,22 @@ class DownloadService {
 
       onProgress(0.12, 'Instagram medya bağlantısı alınıyor...');
       final embedResult = await _resolveInstagramEmbed(normalizedIg) ??
-          await _resolveInstagramEmbed(targetUrl);
+          (normalizedIg == targetUrl ? null : await _resolveInstagramEmbed(targetUrl));
       if (embedResult != null) return embedResult;
 
       onProgress(0.16, 'Instagram doğrudan akış çözümleniyor...');
       final snapResult = await _resolveSnapSaveInstagram(normalizedIg) ??
-          await _resolveSnapSaveInstagram(targetUrl);
+          (normalizedIg == targetUrl ? null : await _resolveSnapSaveInstagram(targetUrl));
       if (snapResult != null) return snapResult;
 
       onProgress(0.20, 'Instagram sunucu akışı alınıyor...');
       final igCobalt = await _resolveCobaltInstanceUrl(
         targetUrl: normalizedIg,
         quality: quality,
-      ) ?? await _resolveCobaltInstanceUrl(
+      ) ?? (normalizedIg == targetUrl ? null : await _resolveCobaltInstanceUrl(
         targetUrl: targetUrl,
         quality: quality,
-      );
+      ));
       if (igCobalt != null) return igCobalt;
     }
 
@@ -1262,7 +1320,9 @@ class DownloadService {
 
     // 6. Genel Sunucu Katmanı
     onProgress(0.18, 'Sunucu üzerinden video akışı alınıyor...');
-    final genericResult = await _resolveCobaltInstanceUrl(
+    final genericResult = const {'YouTube', 'Instagram', 'TikTok', 'Facebook'}
+        .contains(detectPlatformName(targetUrl))
+        ? null : await _resolveCobaltInstanceUrl(
       targetUrl: targetUrl,
       quality: quality,
     );
@@ -2518,6 +2578,9 @@ class DownloadService {
 
           final resp = await req.close().timeout(const Duration(seconds: 15));
           if (resp.statusCode != 200 && resp.statusCode != 206) {
+            if (resp.statusCode == 401 || resp.statusCode == 403) {
+              throw _StreamAccessDenied(resp.statusCode);
+            }
             throw HttpException('HTTP ${resp.statusCode}');
           }
 
@@ -2534,7 +2597,7 @@ class DownloadService {
           onProgress(received, totalBytes);
           if (totalBytes <= 0 && chunkBytes == 0) break;
         } catch (e) {
-          if (cancelToken?.isCancelled == true || _cancelToken?.isCancelled == true) rethrow;
+          if (e is _StreamAccessDenied || cancelToken?.isCancelled == true || _cancelToken?.isCancelled == true) rethrow;
           failures++;
           debugPrint('Akış parçası takıldı ($failures/$maxFailures): $e. Yeniden deneniyor...');
           if (failures >= maxFailures) rethrow;
@@ -2661,20 +2724,14 @@ class DownloadService {
       _youtubeBaseName = candidate;
     }
 
+    Future<Map?>? tikTokLookup;
     if (detectPlatformName(targetUrl) == 'TikTok' && !quality.isAudioOnly) {
       onProgress(0.08, 'TikTok gönderisi inceleniyor...');
       TikTokSlideshow? slideshow;
       try {
-        final response = await _dio.post('https://www.tikwm.com/api/',
-            data: {'url': targetUrl, 'hd': 1},
-            options: Options(contentType: Headers.formUrlEncodedContentType,
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 15)),
-            cancelToken: _cancelToken);
-        final data = response.data is String ? jsonDecode(response.data) : response.data;
-        if (data is Map && data['data'] is Map) {
-          slideshow = TikTokSlideshow.fromApi(data['data'] as Map);
-        }
+        tikTokLookup = _fetchTikTokData(targetUrl);
+        final data = await tikTokLookup;
+        if (data != null) slideshow = TikTokSlideshow.fromApi(data);
       } catch (_) {
         if (_cancelToken?.isCancelled == true || targetUrl.contains('/photo/')) rethrow;
       }
@@ -2706,15 +2763,16 @@ class DownloadService {
     }
 
     // Keep platform extraction, signed request headers and conversion together.
+    final directPlatform = detectPlatformName(targetUrl);
     if (Platform.isWindows &&
-        detectPlatformName(targetUrl) == 'Instagram' &&
+        const {'Instagram', 'Facebook'}.contains(directPlatform) &&
         await YtDlpExtraService().findYtDlpExecutable() != null) {
       try {
         final result = await YtDlpExtraService().downloadWithProgress(
           targetUrl: targetUrl,
           quality: quality,
           destinationPath: path_lib.join(targetDirectory,
-              'KaraDelik_Instagram_$timeStamp.${quality.isAudioOnly ? 'mp3' : 'mp4'}'),
+              'KaraDelik_${directPlatform}_$timeStamp.${quality.isAudioOnly ? 'mp3' : 'mp4'}'),
           onProgress: onProgress,
         );
         if (_cancelToken?.isCancelled == true) {
@@ -2729,7 +2787,7 @@ class DownloadService {
         return result;
       } catch (e) {
         if (_cancelToken?.isCancelled == true) rethrow;
-        debugPrint('Instagram yerel motor hatası: $e');
+        debugPrint('$directPlatform yerel motor hatası: $e');
       }
     }
 
@@ -2799,6 +2857,7 @@ class DownloadService {
         targetUrl: targetUrl,
         quality: quality,
         onProgress: onProgress,
+        tikTokLookup: tikTokLookup,
       );
 
     // 4. Dosya Adı ve Klasörü Hazırla
