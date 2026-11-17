@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -189,24 +191,24 @@ namespace KaraDelik.Updater
 
         private async Task RunUpdatePipelineAsync()
         {
-            string tempSetupPath = Path.Combine(Path.GetTempPath(), "KaraDelik_Setup_Update.exe");
+            string tempDirectory = Path.Combine(Path.GetTempPath(), "KaraDelik-" + Guid.NewGuid().ToString("N"));
+            string tempSetupPath = Path.Combine(tempDirectory, "KaraDelik_Setup.exe");
             string errorMessage = "";
 
             try
             {
-                // Varsa eski geçici kurulum dosyasını temizle
-                if (File.Exists(tempSetupPath))
-                {
-                    try { File.Delete(tempSetupPath); } catch { }
-                }
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                var setupUri = ValidateSetupUrl(_downloadUrl);
+                Directory.CreateDirectory(tempDirectory);
+                string expectedHash = await DownloadExpectedHashAsync(new Uri(setupUri, "SHA256SUMS.txt"));
 
                 // 1. İNDİRME AŞAMASI
-                bool downloadSuccess = await DownloadSetupFileAsync(_downloadUrl, tempSetupPath);
+                bool downloadSuccess = await DownloadSetupFileAsync(setupUri, tempSetupPath);
                 if (!downloadSuccess)
                 {
                     SmoothChangeStatus(_isEn ? "Download failed, retrying..." : "İndirme başarısız oldu, tekrar deneniyor...");
                     await Task.Delay(2000);
-                    downloadSuccess = await DownloadSetupFileAsync(_downloadUrl, tempSetupPath);
+                    downloadSuccess = await DownloadSetupFileAsync(setupUri, tempSetupPath);
                 }
 
                 if (!downloadSuccess)
@@ -216,6 +218,9 @@ namespace KaraDelik.Updater
                     Application.Current.Shutdown();
                     return;
                 }
+
+                if (!MatchesSetupHash(tempSetupPath, expectedHash))
+                    throw new InvalidDataException(_isEn ? "Installer checksum does not match." : "Kurulum dosyasi dogrulanamadi.");
 
                 // 2. SESSİZ KURULUM AŞAMASI
                 SmoothChangeStatus(_isEn ? "Installing new version..." : "Yeni sürüm kuruluyor...");
@@ -252,16 +257,6 @@ namespace KaraDelik.Updater
 
                 await Task.Delay(3000);
 
-                // Geçici setup dosyasını sil
-                try
-                {
-                    if (File.Exists(tempSetupPath))
-                    {
-                        File.Delete(tempSetupPath);
-                    }
-                }
-                catch { }
-
                 // Ana uygulamayı (KaraDelik.exe) yeniden başlat
                 try
                 {
@@ -292,20 +287,98 @@ namespace KaraDelik.Updater
                 errorMessage = ex.Message;
             }
 
+            finally
+            {
+                try { if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+
             SmoothChangeStatus(_isEn ? "Update error occurred." : "Güncelleme hatası oluştu.");
             StepDetailTextBlock.Text = errorMessage;
             await Task.Delay(4000);
             Application.Current.Shutdown();
         }
 
-        private async Task<bool> DownloadSetupFileAsync(string url, string destinationPath)
+        private static Uri ValidateSetupUrl(string url)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com" ||
+                !uri.IsDefaultPort || uri.UserInfo.Length != 0 ||
+                uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
+                !Regex.IsMatch(uri.AbsolutePath,
+                    @"^/abivibe/Kara-Delik/releases/(?:download/v[0-9]+\.[0-9]+\.[0-9]+|latest/download)/KaraDelik_Setup\.exe$"))
+                throw new InvalidDataException("The installer URL must point to a Kara Delik GitHub release.");
+            return uri;
+        }
+
+        private static async Task<HttpResponseMessage> GetReleaseAssetAsync(HttpClient client, Uri uri)
+        {
+            for (int redirects = 0; redirects <= 4; redirects++)
+            {
+                if (uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                    uri.UserInfo.Length != 0 ||
+                    (uri.Host != "github.com" && uri.Host != "release-assets.githubusercontent.com" &&
+                     uri.Host != "objects.githubusercontent.com"))
+                    throw new InvalidDataException("Untrusted GitHub release redirect.");
+
+                var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                int status = (int)response.StatusCode;
+                if (status < 300 || status >= 400) return response;
+                using (response)
+                {
+                    var location = response.Headers.Location;
+                    if (location == null) throw new InvalidDataException("Missing release redirect URL.");
+                    uri = new Uri(uri, location);
+                }
+                if (uri.Host == "github.com" &&
+                    !Regex.IsMatch(uri.AbsolutePath,
+                        @"^/abivibe/Kara-Delik/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/(?:KaraDelik_Setup\.exe|SHA256SUMS\.txt)$"))
+                    throw new InvalidDataException("Untrusted GitHub release path.");
+            }
+            throw new InvalidDataException("Too many release redirects.");
+        }
+
+        private static async Task<string> DownloadExpectedHashAsync(Uri uri)
+        {
+            using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
+            {
+                client.Timeout = TimeSpan.FromSeconds(30);
+                client.MaxResponseContentBufferSize = 4096;
+                client.DefaultRequestHeaders.Add("User-Agent", "KaraDelik-App");
+                using (var response = await GetReleaseAssetAsync(client, uri))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await response.Content.LoadIntoBufferAsync(4096);
+                    var checksums = await response.Content.ReadAsStringAsync();
+                    var match = Regex.Match(checksums,
+                        @"^([a-fA-F0-9]{64})[ 	]+\*?KaraDelik_Setup\.exe?$",
+                        RegexOptions.Multiline);
+                    if (!match.Success) throw new InvalidDataException("Missing installer checksum.");
+                    return match.Groups[1].Value;
+                }
+            }
+        }
+
+        private static bool MatchesSetupHash(string path, string expectedHash)
+        {
+            using (var sha = SHA256.Create())
+            using (var file = File.OpenRead(path))
+            {
+                string actualHash = BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "");
+                return string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private async Task<bool> DownloadSetupFileAsync(Uri url, string destinationPath)
         {
             try
             {
                 // GitHub HTTPS bağlantıları için modern TLS protokollerini etkinleştir
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
 
-                using (var handler = new HttpClientHandler { AllowAutoRedirect = true })
+                using (var handler = new HttpClientHandler { AllowAutoRedirect = false })
                 using (var client = new HttpClient(handler))
                 {
                     client.Timeout = TimeSpan.FromMinutes(10);
@@ -313,7 +386,7 @@ namespace KaraDelik.Updater
                     DownloadProgressBar.IsIndeterminate = false;
                     DownloadProgressBar.Value = 0;
 
-                    using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                    using (var response = await GetReleaseAssetAsync(client, url))
                     {
                         response.EnsureSuccessStatusCode();
 

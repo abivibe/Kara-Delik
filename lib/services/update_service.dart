@@ -6,7 +6,7 @@ import 'package:path/path.dart' as path_lib;
 import 'localization_service.dart';
 
 class UpdateService {
-  static const String currentVersion = '1.0.4';
+  static const String currentVersion = '1.0.5';
 
   static String? selectSetupUrl(List<dynamic> assets) {
     for (final asset in assets) {

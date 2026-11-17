@@ -176,11 +176,6 @@ class DownloadHistoryService {
           return true;
         } catch (e) {
           debugPrint('Dosya silme denemesi ${i + 1} ($filePath): $e');
-          if (Platform.isWindows) {
-            try {
-              await Process.run('cmd.exe', ['/c', 'del', '/f', '/q', filePath.replaceAll('/', '\\')]);
-            } catch (_) {}
-          }
           if (await file.exists()) {
             await Future.delayed(const Duration(milliseconds: 200));
           }
@@ -285,8 +280,15 @@ class DownloadHistoryService {
     if (!Platform.isWindows) return;
     try {
       final file = File(filePath);
-      if (await file.exists()) {
-        await Process.run('cmd.exe', ['/c', 'start', '""', filePath]);
+      final extension = path_lib.extension(filePath).toLowerCase();
+      if (const {'.mp4', '.mp3'}.contains(extension) && await file.exists()) {
+        final result = await Process.run(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-Command',
+            r'Invoke-Item -LiteralPath $env:KARADELIK_MEDIA_PATH'],
+          environment: {'KARADELIK_MEDIA_PATH': file.absolute.path},
+        );
+        if (result.exitCode != 0) debugPrint('Medya dosyası açılamadı: ${result.stderr}');
       }
     } catch (e) {
       debugPrint('Dosya oynatılırken hata: $e');
@@ -296,7 +298,6 @@ class DownloadHistoryService {
   /// Windows Klasörde Göster Çözümü:
   /// 1. Birincil Strateji (Windows Shell API): KaraDelikNotifier.exe /open (shell32.dll Win32 SHOpenFolderAndSelectItems & ILCreateFromPathW)
   /// 2. İkincil Strateji (Doğrudan Explorer): Mutlak C:\Windows\explorer.exe (/select, CreateProcessW)
-  /// 3. Üçüncül Strateji (Bypass Shell Start): cmd.exe /c start "" "{dizin}"
   Future<void> openContainingFolder(String filePath) async {
     if (!Platform.isWindows) return;
     try {
@@ -348,29 +349,6 @@ class DownloadHistoryService {
         debugPrint('Doğrudan explorer.exe hatası: $e');
       }
 
-      // 3. Üçüncül Strateji: Bypass Shell Start (cmd.exe /c start "" "{dizin}")
-      try {
-        String targetDir = normalized;
-        if (await File(normalized).exists()) {
-          targetDir = path_lib.dirname(normalized);
-        } else if (!await Directory(normalized).exists()) {
-          final parent = path_lib.dirname(normalized);
-          if (await Directory(parent).exists()) {
-            targetDir = parent;
-          } else {
-            final userProfile = Platform.environment['USERPROFILE'];
-            targetDir = userProfile != null ? '$userProfile\\Downloads' : normalized;
-          }
-        }
-
-        await Process.start(
-          'cmd.exe',
-          ['/c', 'start', '""', targetDir],
-          mode: ProcessStartMode.detached,
-        );
-      } catch (e) {
-        debugPrint('Bypass Shell Start hatası: $e');
-      }
     } catch (e) {
       debugPrint('Klasör açılırken genel hata: $e');
     }
@@ -383,19 +361,23 @@ class DownloadHistoryService {
       final srcFile = File(item.filePath);
       if (!await srcFile.exists()) return null;
 
-      final safeName = item.fileName.replaceAll('"', '');
-      final script = '''
+      final script = r'''
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Windows.Forms
-\$sfd = New-Object System.Windows.Forms.SaveFileDialog
-\$sfd.Title = "KaraDelik: Videoyu Farkli Klasore Kaydet"
-\$sfd.FileName = "$safeName"
-\$sfd.Filter = "Medya Dosyasi (*.mp4;*.mp3)|*.mp4;*.mp3|Tum Dosyalar (*.*)|*.*"
-if (\$sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-  [Console]::Out.Write(\$sfd.FileName)
+$sfd = New-Object System.Windows.Forms.SaveFileDialog
+$sfd.Title = "KaraDelik: Videoyu Farkli Klasore Kaydet"
+$sfd.FileName = $env:KARADELIK_SAVE_NAME
+$sfd.Filter = "Medya Dosyasi (*.mp4;*.mp3)|*.mp4;*.mp3|Tum Dosyalar (*.*)|*.*"
+if ($sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.Write($sfd.FileName)
 }
 ''';
 
-      final res = await Process.run('powershell', ['-NoProfile', '-Command', script]);
+      final res = await Process.run(
+        'powershell.exe', ['-NoProfile', '-STA', '-Command', script],
+        environment: {'KARADELIK_SAVE_NAME': path_lib.basename(srcFile.path)},
+        stdoutEncoding: utf8,
+      );
       final destination = res.stdout.toString().trim();
       if (destination.isNotEmpty && destination != item.filePath) {
         final destFile = await srcFile.copy(destination);

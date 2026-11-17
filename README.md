@@ -4,10 +4,10 @@
 ### Evrensel, Ultra Hızlı ve Minimalist Medya İndirici
 *Universal, Ultra-Fast & Minimalist Media Downloader*
 
-[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.4-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Release](https://img.shields.io/badge/S%C3%BCr%C3%BCm-v1.0.5-00E676?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(64--bit)-0078D6?style=for-the-badge&logo=windows11&logoColor=white)](../../releases/latest)
 [![Vibe Coding](https://img.shields.io/badge/%E2%9C%A8%20Crafted%20with-VIBE%20CODING-8A2BE2?style=for-the-badge)](https://github.com/abivibe/Kara-Delik)
-[![Checksum](https://img.shields.io/badge/Checksum-SHA--256-blue?style=for-the-badge)](../../releases/tag/v1.0.4)
+[![Checksum](https://img.shields.io/badge/Checksum-SHA--256-blue?style=for-the-badge)](../../releases/tag/v1.0.5)
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/vibeabi)
 
@@ -89,16 +89,18 @@ Getting started takes less than **30 seconds**:
 
 ---
 
+Bazı indirme işlemlerinde medya bağlantısı TikWM, Cobalt, Invidious veya SnapSave gibi üçüncü taraf çözümleyicilere gönderilebilir. / Some downloads may send media links to third-party resolvers such as TikWM, Cobalt, Invidious, or SnapSave.
+
 ## 📦 Dosya Doğrulama | File Verification
 
-**v1.0.4:** TikTok fotoğraf gönderisi indirme ve Windows derlemesi doğrulandı. / TikTok photo post downloading and the Windows build were verified. See [release notes](docs/releases/v1.0.4.md).
+**v1.0.5:** YouTube and TikTok photo post MP3 downloads were verified. / YouTube ve TikTok fotoğraf gönderilerinden MP3 indirme doğrulandı. [Release notes / Sürüm notları](docs/releases/v1.0.5.md).
 
 | Kontrol / Check | Sonuç / Status | Detay / Details |
 | :--- | :--- | :--- |
 | **Dosya Adı / File Name** | `KaraDelik_Setup.exe` | Windows 64-bit Kurulum Paketi (Installer) |
-| **Dosya Boyutu / File Size** | `137,264,959 bytes` | Windows setup, LZMA2 compression |
-| **SHA-256 Doğrulama / Hash** | `e9df1ce68fd6fd4b1c0171bc8d41825254b020bc6c92f99d0bd1704d7cf31cba` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
-| **İndirme Testi / Download Test** | `passed` | TikTok photo post, MP4 with audio and video |
+| **Dosya Boyutu / File Size** | `137,268,515 bytes` | Windows setup, LZMA2 compression |
+| **SHA-256 Doğrulama / Hash** | `2e250322a566aa8437e5b6f5626be92c3866b2f5d048cd269466a592c88fb32b` | `CertUtil -hashfile KaraDelik_Setup.exe SHA256` |
+| **İndirme Testi / Download Test** | `passed` | YouTube and TikTok photo post, MP3 |
 
 ---
 

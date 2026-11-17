@@ -116,7 +116,6 @@ class DownloadService {
     if (_dio.httpClientAdapter is IOHttpClientAdapter) {
       (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
         final client = HttpClient();
-        client.badCertificateCallback = (cert, host, port) => true;
         client.maxConnectionsPerHost = 64;
         client.idleTimeout = const Duration(seconds: 60);
         client.connectionTimeout = const Duration(seconds: 20);
@@ -567,9 +566,17 @@ class DownloadService {
             // Video indirmelerinde en yüksek kaliteli filigransız 1080p HD akışı (hdplay) önceliklidir!
             // MP3 indirmelerinde ise videodaki tüm konuşma ve orijinal sesleri eksiksiz içeren
             // standart play akışı hız avantajıyla çekilip MP3'e dönüştürülür.
-            final directUrl = quality.isAudioOnly
-                ? (videoData['play'] ?? videoData['hdplay'] ?? videoData['wmplay']) as String?
-                : (videoData['hdplay'] ?? videoData['play'] ?? videoData['wmplay']) as String?;
+            final photos = videoData['images'];
+            final candidates = [
+              if (quality.isAudioOnly && photos is List && photos.isNotEmpty)
+                videoData['music'],
+              if (!quality.isAudioOnly) videoData['hdplay'],
+              videoData['play'],
+              if (quality.isAudioOnly) videoData['hdplay'],
+              videoData['wmplay'],
+            ];
+            final directUrl = candidates.whereType<String>()
+                .where((url) => url.isNotEmpty).firstOrNull;
             if (directUrl != null && directUrl.isNotEmpty) {
               return directUrl.startsWith('http')
                   ? directUrl
@@ -1404,67 +1411,29 @@ class DownloadService {
     }
   }
   Future<bool> _convertToMp3(String inputPath, String outputPath) async {
-    if (Platform.isWindows) {
-      final ffmpeg = await _findFfmpegExecutable();
-      if (ffmpeg != null) {
-        try {
-          var res = await Process.run(ffmpeg, [
-            '-y',
-            '-threads', '0',
-            '-i', inputPath,
-            '-vn',
-            '-c:a', 'libmp3lame',
-            '-b:a', '320k',
-            outputPath,
-          ]);
-          if (res.exitCode == 0 &&
-              await File(outputPath).exists() &&
-              (await File(outputPath).length()) > 1024) {
-            return true;
-          }
-
-          final stderr = res.stderr.toString();
-          debugPrint('FFmpeg MP3 dönüştürme uyarısı: $stderr');
-
-          if (stderr.contains('does not contain any stream') ||
-              stderr.contains('matches no streams') ||
-              stderr.contains('Output file is empty')) {
-            throw Exception('Bu videoda herhangi bir ses akışı bulunmamaktadır.');
-          }
-
-          // 2. Deneme: Esnek akış haritalama ve optimize ses parametreleri
-          res = await Process.run(ffmpeg, [
-            '-y',
-            '-threads', '0',
-            '-i', inputPath,
-            '-vn',
-            '-map', '0:a:0?',
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            outputPath,
-          ]);
-          if (res.exitCode == 0 &&
-              await File(outputPath).exists() &&
-              (await File(outputPath).length()) > 1024) {
-            return true;
-          }
-        } catch (e) {
-          if (e.toString().contains('ses akışı bulunmamaktadır')) rethrow;
-          debugPrint('FFmpeg çalıştırma hatası: $e');
-        }
-      }
-    }
+    final ffmpeg = await _findFfmpegExecutable();
+    if (ffmpeg == null) return false;
+    final staging = await File(outputPath).parent.createTemp('.karadelik_audio_');
+    final tempMp3 = File(path_lib.join(staging.path, 'audio.mp3'));
     try {
-      final inputFile = File(inputPath);
-      if (await inputFile.exists()) {
-        await inputFile.copy(outputPath);
-        return (await File(outputPath).exists()) &&
-            (await File(outputPath).length() > 1024);
+      final result = await Process.run(ffmpeg, [
+        '-nostdin', '-hide_banner', '-loglevel', 'error', '-xerror',
+        '-i', inputPath,
+        '-map', '0:a:0', '-vn', '-sn', '-dn',
+        '-c:a', 'libmp3lame', '-b:a', '320k',
+        '-id3v2_version', '3',
+        tempMp3.path,
+      ]);
+      if (_cancelToken?.isCancelled == true) throw _cancelToken!.cancelError!;
+      if (result.exitCode != 0 || !await tempMp3.exists() || await tempMp3.length() <= 1024) {
+        debugPrint('FFmpeg MP3 dönüştürme hatası: ${result.stderr}');
+        return false;
       }
-    } catch (e) {
-      debugPrint('Dosya kopyalama hatası: $e');
+      await tempMp3.rename(outputPath);
+      return true;
+    } finally {
+      await staging.delete(recursive: true);
     }
-    return false;
   }
 
   /// En hızlı yanıt veren Invidious sunucusunu eşzamanlı sorgular
@@ -2884,36 +2853,13 @@ class DownloadService {
         throw Exception('İndirilen medya boş veya geçersiz (0 bayt). Lütfen bağlantıyı kontrol ediniz.');
       }
 
-      // Dosya zaten gerçek bir MP3 mü kontrol et (ilk 3 bayt "ID3" veya MPEG Audio sync word 0xFFE0)
-      bool isPureMp3 = false;
+      onProgress(0.88, 'Ses MP3 formatına dönüştürülüyor...');
       try {
-        final bytes = await tempMediaFile.openRead(0, 10).first;
-        if (bytes.length >= 3) {
-          if (bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) {
-            isPureMp3 = true; // ID3 tag
-          } else if (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) {
-            isPureMp3 = true; // MPEG Audio sync word
-          }
-        }
-      } catch (_) {}
-
-      if (isPureMp3) {
-        // Zaten hazır MP3: doğrudan savePath'e kopyala
-        final finalFile = File(savePath);
-        if (await finalFile.exists()) await finalFile.delete();
-        await tempMediaFile.copy(savePath);
-        try { await tempMediaFile.delete(); } catch (_) {}
-      } else {
-        // MP4 video veya ses akışını gerçek MP3 formatına dönüştür!
-        onProgress(0.88, 'Gerçek MP3 ses formatına dönüştürülüyor...');
-        final converted = await _convertToMp3(tempMediaPath, savePath);
-        try {
-          if (await tempMediaFile.exists()) await tempMediaFile.delete();
-        } catch (_) {}
-
-        if (!converted || !await File(savePath).exists() || await File(savePath).length() <= 1024) {
+        if (!await _convertToMp3(tempMediaPath, savePath)) {
           throw Exception('Ses MP3 formatına dönüştürülemedi.');
         }
+      } finally {
+        if (await tempMediaFile.exists()) await tempMediaFile.delete();
       }
 
       // 6. İndirilenler Geçmişine Kaydet
